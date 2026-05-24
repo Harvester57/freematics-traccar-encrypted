@@ -20,7 +20,7 @@ jobs:
 
     container:
       # A Docker image with Semgrep installed. Do not change this.
-      image: semgrep/semgrep
+      image: ghcr.io/harvester57/flawfinder-chainguard:latest
 
     # Skip any PR created by dependabot to avoid permission issues:
     if: (github.actor != 'dependabot[bot]')
