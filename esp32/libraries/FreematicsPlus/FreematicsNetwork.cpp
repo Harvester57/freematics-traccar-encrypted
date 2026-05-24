@@ -10,15 +10,13 @@ on
 #include "FreematicsBase.h"
 #include "FreematicsNetwork.h"
 
-String HTTPClient::genHeader(HTTP_METHOD method, const char* path, bool keepAlive, const char* payload, int payloadSize)
+String HTTPClient::genHeader(HTTP_METHOD method, const char* path, const char* payload, int payloadSize)
 {
   String header;
   // generate a simplest HTTP header
   header = method == METHOD_GET ? "GET " : "POST ";
   header += path;
-  header += " HTTP/1.1\r\nConnection: ";
-  header += keepAlive ? "keep-alive" : "close";
-  header += "\r\nHost: ";
+  header += " HTTP/1.1\r\nConnection: keep-alive\r\nHost: ";
   header += m_host;
   if (method != METHOD_GET) {
     header += "\r\nContent-length: ";
@@ -147,9 +145,9 @@ void WifiHTTP::close()
   m_state = HTTP_DISCONNECTED;
 }
 
-bool WifiHTTP::send(HTTP_METHOD method, const char* path, bool keepAlive, const char* payload, int payloadSize)
+bool WifiHTTP::send(HTTP_METHOD method, const char* path, const char* payload, int payloadSize)
 {
-  String header = genHeader(method, path, keepAlive, payload, payloadSize);
+  String header = genHeader(method, path, payload, payloadSize);
   int len = header.length();
   if (client.write(header.c_str(), len) != len) {
     m_state = HTTP_DISCONNECTED;
@@ -184,11 +182,8 @@ char* WifiHTTP::receive(char* buffer, int bufsize, int* pbytes, unsigned int tim
       if (++contentBytes == contentLen) break;
     } else if (strstr(buffer, "\r\n\r\n")) {
       // parse HTTP header
-      char *p = strstr(buffer, "/1.1 ");
-      if (!p) p = strstr(buffer, "/1.0 ");
-      if (p) {
-        if (p) m_code = atoi(p + 5);
-      }
+      char *p = strstr(buffer, "HTTP/1.");
+      if (p) m_code = atoi(p + 9);
       keepAlive = strstr(buffer, ": close\r\n") == 0;
       p = strstr(buffer, "Content-Length: ");
       if (!p) p = strstr(buffer, "Content-length: ");
@@ -238,16 +233,18 @@ bool CellSIMCOM::begin(CFreematics* device)
         }
         m_type = CELL_SIM7070;
       } else {
-        p = strchr(p, '_');
-        if (p++) {
-          int i = 0;
-          while (i < sizeof(m_model) - 1 && p[i] && p[i] != '\r' && p[i] != '\n') {
+        p += 7;
+        char *q = strchr(p, '_');
+        if (q) p = q + 1;
+        for (int i = 0; i < sizeof(m_model) - 1 && p[i] && p[i] != '\r' && p[i] != '\n'; i++) {
             m_model[i] = p[i];
-            i++;
-          } 
-          m_model[i] = 0;
-        }
-        m_type = strstr(m_model, "5360") ? CELL_SIM5360 : CELL_SIM7600;
+        } 
+        if (strstr(m_model, "5360"))
+          m_type = CELL_SIM5360;
+        else if (strstr(m_model, "7670"))
+          m_type = CELL_SIM7670;
+        else
+          m_type = CELL_SIM7600;
       }
       p = strstr(m_buffer, "IMEI:");
       if (p) strncpy(IMEI, p[5] == ' ' ? p + 6 : p + 5, sizeof(IMEI) - 1);
@@ -264,10 +261,14 @@ void CellSIMCOM::end()
   if (m_type == CELL_SIM7070) {
     if (!sendCommand("AT+CPOWD=1\r", 1000, "NORMAL POWER DOWN")) {
       if (m_device) m_device->xbTogglePower(2510);
+    } else {
+      delay(1500);
     }
   } else {
     if (!sendCommand("AT+CPOF\r")) {
       if (m_device) m_device->xbTogglePower(2510);
+    } else {
+      delay(1500);
     }
   }
 }
@@ -332,11 +333,12 @@ bool CellSIMCOM::setup(const char* apn, const char* username, const char* passwo
         delay(100);
         if (sendCommand("AT+CREG?\r", 1000, "+CREG: 0,")) {
           char *p = strstr(m_buffer, "+CREG: 0,");
-          success = (p && (*(p + 9) == '1' || *(p + 9) == '5'));
+          success = (p && (*(p + 9) == '1' || *(p + 9) == '5') || *(p + 9) == '6');
         }
       } while (!success && millis() - t < timeout);
       if (!success) break;
       
+      /*
       if (m_type == CELL_SIM7600) {
         success = false;
         do {
@@ -348,18 +350,26 @@ bool CellSIMCOM::setup(const char* apn, const char* username, const char* passwo
         } while (!success && millis() - t < timeout);
         if (!success) break;
       }
+      */
 
-      if (apn && *apn) {
-        sprintf(m_buffer, "AT+CGSOCKCONT=1,\"IP\",\"%s\"\r", apn);
-        sendCommand(m_buffer);
-        if (username && password) {
-          sprintf(m_buffer, "AT+CSOCKAUTH=1,1,\"%s\",\"%s\"\r", username, password);
+
+      if (m_type == CELL_SIM7670) {
+        if (apn && *apn) {
+          sprintf(m_buffer, "AT+CGDCONT=1,\"IP\",\"%s\"\r", apn);
           sendCommand(m_buffer);
         }
+      } else {
+        if (apn && *apn) {
+          sprintf(m_buffer, "AT+CGSOCKCONT=1,\"IP\",\"%s\"\r", apn);
+          sendCommand(m_buffer);
+          if (username && password) {
+            sprintf(m_buffer, "AT+CSOCKAUTH=1,1,\"%s\",\"%s\"\r", username, password);
+            sendCommand(m_buffer);
+          }
+        }
+        sendCommand("AT+CSOCKSETPN=1\r");
+        sendCommand("AT+CIPMODE=0\r");
       }
-
-      sendCommand("AT+CSOCKSETPN=1\r");
-      sendCommand("AT+CIPMODE=0\r");
       sendCommand("AT+NETOPEN\r");
     } while(0);
   }
@@ -451,6 +461,7 @@ String CellSIMCOM::getIP()
           }
         }
       }
+      if (m_type == CELL_SIM7670) break;
       delay(500);
     } while (millis() - t < 15000);
   } 
@@ -489,7 +500,7 @@ bool CellSIMCOM::check(unsigned int timeout)
 {
   uint32_t t = millis();
   do {
-      if (sendCommand("AT\r", 250)) return true;
+      if (sendCommand("AT\rAT\r", 250)) return true;
   } while (millis() - t < timeout);
   return false;
 }
@@ -502,6 +513,11 @@ bool CellSIMCOM::checkSIM(const char* pin)
     sendCommand(m_buffer);
   }
   for (byte n = 0; n < 20 && !(success = sendCommand("AT+CPIN?\r", 500, ": READY")); n++);
+  if (!success) {
+    // avoid SIM card lockout
+    sendCommand("AT+RPMPARAM=0\r");
+    success = sendCommand("AT+CPIN?\r", 500, ": READY");
+  }
   return success;  
 }
 
@@ -741,7 +757,10 @@ char* CellUDP::receive(int* pbytes, unsigned int timeout)
 
 void CellHTTP::init()
 {
-  if (m_type != CELL_SIM7070) {
+  if (m_type == CELL_SIM7670) {
+    sendCommand("AT+CSSLCFG=\"sslversion\",0,4\r");
+    sendCommand("AT+CSSLCFG=\"authmode\",0,0\r");
+  } else if (m_type != CELL_SIM7070) {
     sendCommand("AT+CHTTPSSTOP\r");
     sendCommand("AT+CHTTPSSTART\r");
   }
@@ -782,6 +801,10 @@ bool CellHTTP::open(const char* host, uint16_t port)
         return true;
       }
     }
+  } else if (m_type == CELL_SIM7670) {
+    sendCommand("AT+HTTPINIT\r");
+    sendCommand("AT+HTTPPARA=\"SSLCFG\",0\r");
+    return true;
   } else {
     memset(m_buffer, 0, RECV_BUF_SIZE);
     sprintf(m_buffer, "AT+CHTTPSOPSE=\"%s\",%u,%u\r", host, port, port == 443 ? 2: 1);
@@ -805,12 +828,14 @@ bool CellHTTP::close()
     return sendCommand("AT+SHDISC\r");
   } else if (m_type == CELL_SIM5360) {
     return sendCommand("AT+CHTTPSCLSE\r", 1000, "+CHTTPSCLSE:");
+  } else if (m_type == CELL_SIM7670) {
+    return sendCommand("AT+HTTPTERM\r");
   } else {
     return sendCommand("AT+CIPCLOSE=0\r");
   }
 }
 
-bool CellHTTP::send(HTTP_METHOD method, const char* path, bool keepAlive, const char* payload, int payloadSize)
+bool CellHTTP::send(HTTP_METHOD method, const char* host, uint16_t port, const char* path, const char* payload, int payloadSize)
 {
   if (m_type == CELL_SIM7070) {
     if (method == METHOD_POST) {
@@ -838,8 +863,21 @@ bool CellHTTP::send(HTTP_METHOD method, const char* path, bool keepAlive, const 
         }
       }
     }
+  } else if (m_type == CELL_SIM7670) {
+    sprintf(m_buffer, "AT+HTTPPARA=\"URL\",\"https://%s:%u%s\"\r", host, port, path);
+    if (sendCommand(m_buffer, 1000)) {
+      if (payload) {
+        sprintf(m_buffer, "AT+HTTPDATA=%u,1000\r", payloadSize);
+        sendCommand(m_buffer, 1000, "DOWNLOAD\r");
+        m_device->xbWrite(payload, payloadSize);
+        sendCommand("AT+HTTPACTION=1\r");
+      } else {
+        sendCommand("AT+HTTPACTION=0\r");
+      }
+    }
+    return true;
   } else {
-    String header = genHeader(method, path, keepAlive, payload, payloadSize);
+    String header = genHeader(method, path, payload, payloadSize);
     int len = header.length();
     sprintf(m_buffer, "AT+CHTTPSSEND=%u\r", len + payloadSize);
     if (!sendCommand(m_buffer, 100, ">")) {
@@ -879,7 +917,25 @@ char* CellHTTP::receive(int* pbytes, unsigned int timeout)
         return p;
       }
     }
-    return 0;
+  } else if (m_type == CELL_SIM7670) {
+    if (sendCommand("AT+HTTPHEAD\r", timeout, "+HTTPHEAD:")) {
+      char *p = strstr(m_buffer, "HTTP/1.");
+      if (p) m_code = atoi(p + 9);
+    }
+    sprintf(m_buffer, "AT+HTTPREAD=0,%u\r", RECV_BUF_SIZE - 32);
+    sendCommand(m_buffer);
+    char *p = strstr(m_buffer, "+HTTPREAD:");
+    if (p) {
+      m_state = HTTP_CONNECTED;
+      int bytes = atoi(p + 11);
+      if (pbytes) *pbytes = bytes;
+      p = strchr(p, '\n');
+      if (p) {
+        p++;
+        if (bytes < RECV_BUF_SIZE - 32) *(p + bytes) = 0;
+        return p;
+      }
+    }
   } else {
     // start receiving
     int received = 0;
@@ -902,7 +958,7 @@ char* CellHTTP::receive(int* pbytes, unsigned int timeout)
     */
     // TODO: implement for multiple chunks of data
     // only process first chunk now
-    sprintf(m_buffer, "AT+CHTTPSRECV=%u\r", RECV_BUF_SIZE - 36);
+    sprintf(m_buffer, "AT+CHTTPSRECV=%u\r", RECV_BUF_SIZE - 32);
     if (sendCommand(m_buffer, timeout, legacy ? "\r\n+CHTTPSRECV: 0" : "\r\n+CHTTPSRECV:0")) {
       char *p = strstr(m_buffer, "\r\n+CHTTPSRECV: DATA");
       if (p) {
@@ -933,4 +989,5 @@ char* CellHTTP::receive(int* pbytes, unsigned int timeout)
     if (pbytes) *pbytes = received;
     return payload;
   }
+  return 0;
 }
