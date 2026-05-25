@@ -1,6 +1,6 @@
 version: 2
 updates:
   - package-ecosystem: "gomod" # See documentation for possible values
-    directory: "/server" # Location of package manifests
+    directory: "/server/src" # Location of package manifests
     schedule:
       interval: "daily"
