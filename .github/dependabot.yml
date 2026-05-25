@@ -4,3 +4,31 @@ updates:
     directory: "/server/src" # Location of package manifests
     schedule:
       interval: "daily"
+  version: 2
+updates:
+- package-ecosystem: docker
+  directory: "/server"
+  commit-message:
+    prefix: "docker"
+  assignees:
+  - "Harvester57"
+  schedule:
+    interval: daily
+  groups:
+    docker-dependencies:
+      applies-to: version-updates
+      patterns:
+      - "*"
+- package-ecosystem: "github-actions"
+  directory: "/"
+  commit-message:
+    prefix: "actions"
+  assignees:
+  - "Harvester57"
+  schedule:
+    interval: weekly
+  groups:
+    actions-dependencies:
+      applies-to: version-updates
+      patterns:
+      - "*"
