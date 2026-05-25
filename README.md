@@ -15,7 +15,7 @@ This fork introduces production-ready features, deployment simplifications, secu
 
 *   **Out-of-the-Box Docker Support**: Spin up the decryption server in seconds using the customized [Dockerfile](server/Dockerfile) and [docker-compose.yml](server/docker-compose.yml).
 *   **Zero-Config Environment Injection**: The server docker container dynamically generates and overrides configurations at runtime via environment variables (`CHACHA_KEY`, `LISTEN_PORT`, `DEST_ADDRESS`, `DEST_PORT`).
-*   **Streamlined Firmware Settings**: Pre-configured, developer-friendly options compiled within [config.h](esp32/telelogger/config.h) for simple toggle configuration (`SERVER_ENCRYPTION_ENABLE`, `CHACHA20_KEY`, `ENABLE_BEEPING`).
+*   **Streamlined Firmware Settings**: Pre-configured, developer-friendly options compiled within config.h for simple toggle configuration (`SERVER_ENCRYPTION_ENABLE`, `CHACHA20_KEY`, `ENABLE_BEEPING`).
 *   **Expanded Diagnostics & Fuel Tracking**: Integrated native polling for extra OBD parameters like fuel level (`PID_FUEL_LEVEL`) out of the box.
 *   **Structured Logrus Logging**: Upgraded to production-grade structured logging using [sirupsen/logrus](https://github.com/sirupsen/logrus) with clear, trace-friendly request tracking.
 *   **Hardened Decryption Security**: Resolves critical memory safety issues (such as buffer overflow mitigations during packet decryption), enforces constant-time validation using `secure_compare`, and aligns with Opus 4.6 security recommendations.
