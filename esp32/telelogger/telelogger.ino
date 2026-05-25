@@ -1024,6 +1024,7 @@ void telemetry(void* inst)
       if (teleClient.transmit((const char *)encrypted_buf, sizeof(encrypted_buf))) {
   #else
       if (teleClient.transmit(store.buffer(), store.length())) {
+  #endif
         // successfully sent
         connErrors = 0;
         showStats();
