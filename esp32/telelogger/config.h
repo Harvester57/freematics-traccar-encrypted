@@ -88,13 +88,13 @@
 // cellular network settings
 #define CELL_APN "hologram"
 // Freematics Hub server settings
-#define SERVER_HOST "traccar.harvester.fr"
+#define SERVER_HOST ""
 #define SERVER_PROTOCOL PROTOCOL_UDP
 #endif
 
 // Custom options from this fork
 #define SERVER_ENCRYPTION_ENABLE 1
-#define CHACHA20_KEY "d7f8dc39646486ffc9eafd165001f45f1ddf64328bf681159860c98a1c611569"
+#define CHACHA20_KEY ""
 #define ENABLE_BEEPING 0
 // End custom options
 
