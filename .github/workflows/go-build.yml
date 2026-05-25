@@ -36,7 +36,7 @@ jobs:
           if [[ "${{ github.ref }}" == refs/tags/* ]]; then
             VERSION="${{ github.ref_name }}"
           else
-            VERSION="0.0.0-sha-${GITHUB_SHA::7}"
+            VERSION="master-sha-${GITHUB_SHA::7}"
           fi
           echo "version=$VERSION" >> $GITHUB_OUTPUT
           echo "build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
@@ -53,7 +53,7 @@ jobs:
           GOARCH: ${{ matrix.goarch }}
           CGO_ENABLED: 0
         run: |
-          BINARY_NAME="freematics-encrypt-${{ steps.vars.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          BINARY_NAME="freematics-encrypt-server-${{ steps.vars.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
           if [ "${{ matrix.goos }}" = "windows" ]; then
             BINARY_NAME="${BINARY_NAME}.exe"
           fi
