@@ -1,0 +1,68 @@
+name: Go Build Server
+
+on:
+  push:
+    branches: [ "master" ]
+    tags: [ "v*" ]
+  pull_request:
+    branches: [ "master" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build Server (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, windows, darwin]
+        goarch: [amd64, arm64]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: server/src/go.mod
+          cache-dependency-path: server/src/go.sum
+
+      - name: Set Version and Build Info
+        id: vars
+        run: |
+          if [[ "${{ github.ref }}" == refs/tags/* ]]; then
+            VERSION="${{ github.ref_name }}"
+          else
+            VERSION="0.0.0-sha-${GITHUB_SHA::7}"
+          fi
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "build_date=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_OUTPUT
+        shell: bash
+
+      - name: Go Mod Tidy
+        working-directory: server/src
+        run: go mod tidy
+
+      - name: Build Binary
+        working-directory: server/src
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          BINARY_NAME="freematics-encrypt-${{ steps.vars.outputs.version }}-${{ matrix.goos }}-${{ matrix.goarch }}"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BINARY_NAME="${BINARY_NAME}.exe"
+          fi
+          mkdir -p ../dist
+          go build -v -trimpath -ldflags "-s -w -X main.VersionDate=${{ steps.vars.outputs.build_date }} -X main.Version=${{ steps.vars.outputs.version }}" -o "../dist/${BINARY_NAME}"
+        shell: bash
+
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: freematics-encrypt-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: server/dist/
+          if-no-files-found: error
+          retention-days: 7
