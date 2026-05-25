@@ -1,6 +1,6 @@
 # freematics-traccar-encrypted
 
-[![Docker Build](https://github.com/Harvester57/freematics-traccar-encrypted/actions/workflows/docker-publish.yml/badge.svg)](https://github.com/Harvester57/freematics-traccar-encrypted/actions/workflows/docker-publish.yml)
+[![Docker Build](https://github.com/Harvester57/freematics-traccar-encrypted/actions/workflows/docker-build.yml/badge.svg)](https://github.com/Harvester57/freematics-traccar-encrypted/actions/workflows/docker-build.yml)
 [![Go Build](https://github.com/Harvester57/freematics-traccar-encrypted/actions/workflows/go-build.yml/badge.svg)](https://github.com/Harvester57/freematics-traccar-encrypted/actions/workflows/go-build.yml)
 
 _A transparent, high-performance proxy and custom ESP32 firmware to secure the Traccar Freematics protocol with end-to-end **ChaCha20-Poly1305 AEAD** encryption._
