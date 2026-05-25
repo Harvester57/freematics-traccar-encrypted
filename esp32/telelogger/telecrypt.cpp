@@ -6,6 +6,19 @@
 #include <HardwareSerial.h>
 #include "Crypto.h"
 
+static inline uint8_t hex_char_to_val(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return 0;
+}
+
+static void parse_key(unsigned char *key) {
+    for (int i = 0; i < 32; ++i) {
+        key[i] = (hex_char_to_val(CHACHA20_KEY[2*i]) << 4) | hex_char_to_val(CHACHA20_KEY[2*i + 1]);
+    }
+}
+
 void print_hex(const unsigned char *data, size_t length) {
     for (size_t i = 0; i < length; ++i) {
         Serial.printf("%02x", data[i]);
@@ -18,9 +31,7 @@ void encrypt_string(const unsigned char *input, size_t length, unsigned char *ou
 
     // Initialize the encryption key
     unsigned char key[32];
-    for (int i = 0; i < 32; ++i) {
-        sscanf(CHACHA20_KEY + 2*i, "%02x", &key[i]);
-    }
+    parse_key(key);
     chachaPoly.setKey(key, sizeof(key));
     clean(key); // Scrub key from stack immediately after use
 
@@ -46,9 +57,7 @@ void decrypt_string(const unsigned char *input, size_t length, unsigned char *ou
 
     // Initialize the decryption key
     unsigned char key[32];
-    for (int i = 0; i < 32; ++i) {
-        sscanf(CHACHA20_KEY + 2*i, "%02x", &key[i]);
-    }
+    parse_key(key);
     chachaPoly.setKey(key, sizeof(key));
     clean(key); // Scrub key from stack immediately after use
 

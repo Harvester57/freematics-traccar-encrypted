@@ -9,6 +9,7 @@ on
 #include <Arduino.h>
 #include "FreematicsBase.h"
 #include "FreematicsNetwork.h"
+#include <driver/uart.h>
 
 String HTTPClient::genHeader(HTTP_METHOD method, const char* path, const char* payload, int payloadSize)
 {
@@ -707,8 +708,10 @@ bool CellUDP::send(const char* data, unsigned int len)
   if (m_type == CELL_SIM7070) {
     sendCommand("AT+CASTATE?\r");
     sprintf(m_buffer, "AT+CASEND=0,%u\r", len);
-    sendCommand(m_buffer, 100, "\r\n>");
-    if (sendCommand(data, 1000)) return true;
+    sendCommand(m_buffer, 1000, "\r\n>");
+    uart_write_bytes(UART_NUM_1, data, len);
+    delay(10);
+    if (sendCommand(0, 2000)) return true;
   } else {
     int n = sprintf(m_buffer, "AT+CIPSEND=0,%u,\"%s\",%u\r", len, udpIP.c_str(), udpPort);
     m_device->xbWrite(m_buffer, n);
@@ -841,7 +844,9 @@ bool CellHTTP::send(HTTP_METHOD method, const char* host, uint16_t port, const c
     if (method == METHOD_POST) {
       sprintf(m_buffer, "AT+SHBOD=%u,1000\r", payloadSize);
       if (sendCommand(m_buffer, 1000, "\r\n>")) {
-        sendCommand(payload);
+        uart_write_bytes(UART_NUM_1, payload, payloadSize);
+        delay(10);
+        sendCommand(0, 2000);
       }
     }
     snprintf(m_buffer, RECV_BUF_SIZE, "AT+SHREQ=\"%s\",%u\r", path, method == METHOD_GET ? 1 : 3);

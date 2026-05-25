@@ -259,9 +259,9 @@ bool TeleClientUDP::notify(byte event, const char* payload)
     #if SERVER_ENCRYPTION_ENABLE == 1
     char *orig_send_buf = netbuf.buffer();
     unsigned int orig_send_buf_len = netbuf.length();
-    unsigned char encrypted_buf[12 + orig_send_buf_len + 16];
+    unsigned char encrypted_buf[256];
     encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf);
-    if (!wifi.send((const char *)encrypted_buf, sizeof(encrypted_buf))) break;
+    if (!wifi.send((const char *)encrypted_buf, orig_send_buf_len + 28)) break;
     #else
     if (!wifi.send(netbuf.buffer(), netbuf.length())) break;
     #endif
@@ -272,9 +272,9 @@ bool TeleClientUDP::notify(byte event, const char* payload)
     #if SERVER_ENCRYPTION_ENABLE == 1
     char *orig_send_buf = netbuf.buffer();
     unsigned int orig_send_buf_len = netbuf.length();
-    unsigned char encrypted_buf[12 + orig_send_buf_len + 16];
+    unsigned char encrypted_buf[256];
     encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf);
-    if (!cell.send((const char *)encrypted_buf, sizeof(encrypted_buf))) break;
+    if (!cell.send((const char *)encrypted_buf, orig_send_buf_len + 28)) break;
     #else
     if (!cell.send(netbuf.buffer(), netbuf.length())) break;
     #endif
@@ -305,7 +305,12 @@ bool TeleClientUDP::notify(byte event, const char* payload)
 
     // decrypt received data
 #if SERVER_ENCRYPTION_ENABLE == 1
-    char decrypted_data[bytesRecv - 12 - 16 + 1]; // +1 for null-terminator
+    if (bytesRecv < 28) {
+      Serial.print("[UDP] Packet too short for decryption: ");
+      Serial.println(bytesRecv);
+      continue;
+    }
+    char decrypted_data[RECV_BUF_SIZE];
     decrypt_string((unsigned char *)data, bytesRecv, (unsigned char *)decrypted_data);
     data = decrypted_data;
     bytesRecv = strlen(decrypted_data);
@@ -508,7 +513,11 @@ void TeleClientUDP::inbound()
     data[len] = 0;
 
 #if SERVER_ENCRYPTION_ENABLE == 1
-    char decrypted_data[len - 12 - 16 + 1];
+    if (len < 28) {
+      // Skip decryption for short unsolicited/garbage packets
+      continue;
+    }
+    char decrypted_data[RECV_BUF_SIZE];
     decrypt_string((unsigned char *)data, len, (unsigned char *)decrypted_data);
     data = decrypted_data;
     len = strlen(decrypted_data);

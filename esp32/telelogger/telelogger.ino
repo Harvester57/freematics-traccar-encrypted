@@ -1018,10 +1018,15 @@ void telemetry(void* inst)
   #if SERVER_ENCRYPTION_ENABLE == 1
       char *orig_send_buf = store.buffer();
       unsigned int orig_send_buf_len = store.length();
-      // Increase the size of encrypted_buf to hold the nonce, the encrypted data, and the authentication tag.
-      unsigned char encrypted_buf[12 + orig_send_buf_len + 16]; // 12 bytes for nonce and 16 bytes for tag
-      encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf);
-      if (teleClient.transmit((const char *)encrypted_buf, sizeof(encrypted_buf))) {
+      unsigned int encrypted_buf_len = orig_send_buf_len + 28;
+      unsigned char *encrypted_buf = (unsigned char *)malloc(encrypted_buf_len);
+      bool sent = false;
+      if (encrypted_buf) {
+        encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf);
+        sent = teleClient.transmit((const char *)encrypted_buf, encrypted_buf_len);
+        free(encrypted_buf);
+      }
+      if (sent) {
   #else
       if (teleClient.transmit(store.buffer(), store.length())) {
   #endif
