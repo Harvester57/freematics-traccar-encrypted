@@ -63,6 +63,7 @@ PID_POLLING_INFO obdData[]= {
   {PID_TIMING_ADVANCE, 2},
   {PID_COOLANT_TEMP, 3},
   {PID_INTAKE_TEMP, 3},
+  {PID_FUEL_LEVEL, 1},
 };
 
 CBufferManager bufman;
