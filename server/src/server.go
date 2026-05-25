@@ -10,6 +10,7 @@ import (
 	"os"
 	"server/encryption"
 	"server/logging"
+	"time"
 )
 
 type Config struct {
@@ -99,6 +100,8 @@ func main() {
 						return // Drop the message — never forward unauthenticated data.
 					}
 
+					logger.Infof(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, fmt.Sprintf("Successfully decrypted client packet: %s", string(plaintext))))
+
 					forwardAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", dest.Address, dest.Port))
 					if err != nil {
 						logger.Fatalln("Error resolving forward address:", err)
@@ -135,7 +138,13 @@ func main() {
 						return
 					}
 
-					// Read the response from the backend.
+					// Read the response from the backend with a timeout to prevent infinite blocking.
+					err = forwardConn.SetReadDeadline(time.Now().Add(5 * time.Second))
+					if err != nil {
+						logger.Errorf(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, fmt.Sprintf("Error setting read deadline: %s", err)))
+						return
+					}
+
 					backendResponse := make([]byte, 1500)
 					n, err = forwardConn.Read(backendResponse)
 					if err != nil {
