@@ -204,6 +204,7 @@ When deploying in Docker, the proxy's [entrypoint.sh](server/entrypoint.sh) scri
 
 ## Credits & License
 
+*   Original Project: [freematics-traccar-encrypted](https://github.com/soshial/freematics-traccar-encrypted)
 *   Inspired by [soshial's writeup on the Freematics OBD tracker security findings](https://gist.github.com/soshial/d07919e0fac67f5501a38fe3c39be416).
 *   Firmware based on the original [Freematics Arduino library](https://github.com/stanleyhuangyc/Freematics).
 *   Licensed under the [MIT License](LICENSE).
