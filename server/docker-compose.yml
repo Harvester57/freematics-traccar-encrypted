@@ -1,0 +1,21 @@
+version: '3.8'
+
+services:
+  freematics-encrypt:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: freematics-server:latest
+    container_name: freematics-encrypt-server
+    restart: unless-stopped
+    ports:
+      - "${LISTEN_PORT:-5170}:${LISTEN_PORT:-5170}/udp"
+    environment:
+      - CHACHA20_KEY=d7f8dc39646486ffc9eafd165001f45f1ddf64328bf681159860c98a1c611569
+      - LISTEN_PORT=5170
+      - DEST_ADDRESS=192.168.1.200
+      - DEST_PORT=5171
+    volumes:
+      - ./config.yml:/app/config.yml:ro
+    security_opt:
+      - no-new-privileges:true
