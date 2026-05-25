@@ -556,19 +556,19 @@ void TeleClientUDP::shutdown()
 
 bool TeleClientHTTP::notify(byte event, const char* payload)
 {
-  char url[256];
-  snprintf(url, sizeof(url), "%s/notify/%s?EV=%u&SSI=%d&VIN=%s", SERVER_PATH, devid,
+  char path[256];
+  snprintf(path, sizeof(path), "%s/notify/%s?EV=%u&SSI=%d&VIN=%s", SERVER_PATH, devid,
     (unsigned int)event, (int)rssi, vin);
   if (event == EVENT_LOGOUT) login = false;
 #if ENABLE_WIFI
   if (wifi.connected())
   {
-    return wifi.send(METHOD_GET, url, true) && wifi.receive(cell.getBuffer(), RECV_BUF_SIZE - 1) && wifi.code() == 200;
+    return wifi.send(METHOD_GET, path) && wifi.receive(cell.getBuffer(), RECV_BUF_SIZE - 1) && wifi.code() == 200;
   }
   else
 #endif
   {
-    return cell.send(METHOD_GET, url, true) && cell.receive() && cell.code() == 200;
+    return cell.send(METHOD_GET, SERVER_HOST, SERVER_PORT, path) && cell.receive() && cell.code() == 200;
   }
 }
 
@@ -585,10 +585,10 @@ bool TeleClientHTTP::transmit(const char* packetBuffer, unsigned int packetSize)
     }
   }
 
-  char url[256];
+  char path[256];
   bool success = false;
   int len;
-#if SERVER_METHOD == PROTOCOL_METHOD_GET
+#if SERVER_PROTOCOL == PROTOCOL_HTTPS_GET
   if (gd && gd->ts) {
     len = snprintf(url, sizeof(url), "%s/push?id=%s&timestamp=%s&lat=%f&lon=%f&altitude=%d&speed=%f&heading=%d",
       SERVER_PATH, devid, isoTime,
@@ -596,26 +596,26 @@ bool TeleClientHTTP::transmit(const char* packetBuffer, unsigned int packetSize)
   } else {
     len = snprintf(url, sizeof(url), "%s/push?id=%s", SERVER_PATH, devid);
   }
-  success = cell.send(METHOD_GET, url, true);
+  success = cell.send(METHOD_GET, SERVER_HOST, SERVER_PORT, url);
 #else
-  len = snprintf(url, sizeof(url), "%s/post/%s", SERVER_PATH, devid);
+  len = snprintf(path, sizeof(path), "%s/post/%s", SERVER_PATH, devid);
 #if ENABLE_WIFI
   if (wifi.connected()) {
     Serial.print("[WIFI] ");
-    Serial.println(url);
-    success = wifi.send(METHOD_POST, url, true, packetBuffer, packetSize);
+    Serial.println(path);
+    success = wifi.send(METHOD_POST, path, packetBuffer, packetSize);
   }
   else
 #endif
   {
     Serial.print("[CELL] ");
-    Serial.println(url);
-    success = cell.send(METHOD_POST, url, true, packetBuffer, packetSize);
+    Serial.println(path);
+    success = cell.send(METHOD_POST, SERVER_HOST, SERVER_PORT, path, packetBuffer, packetSize);
   }
   len += packetSize;
 #endif
   if (!success) {
-    Serial.println("Connection closed");
+    Serial.println("[HTTP] Connection closed");
     return false;
   } else {
     txBytes += len;
@@ -633,11 +633,11 @@ bool TeleClientHTTP::transmit(const char* packetBuffer, unsigned int packetSize)
   else
 #endif
   {
-    content = cell.receive(&recvBytes);
+    content = cell.receive(&recvBytes, HTTP_CONN_TIMEOUT);
   }
   if (!content) {
     // close connection on receiving timeout
-    Serial.println("No HTTP response");
+    Serial.println("[HTTP] No response");
     return false;
   }
   Serial.print("[HTTP] ");

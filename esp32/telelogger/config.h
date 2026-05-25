@@ -61,11 +61,8 @@
 #define GNSS_CELLULAR 2
 
 #define PROTOCOL_UDP 1
-#define PROTOCOL_HTTP 2
-#define PROTOCOL_HTTPS 3
-
-#define PROTOCOL_METHOD_GET 0
-#define PROTOCOL_METHOD_POST 1
+#define PROTOCOL_HTTPS_GET 2
+#define PROTOCOL_HTTPS_POST 3
 
 /**************************************
 * OBD-II configurations
@@ -83,15 +80,15 @@
 #ifndef ENABLE_WIFI
 #define ENABLE_WIFI 1
 // WiFi settings
-#define WIFI_SSID "example"
-#define WIFI_PASSWORD "1234"
+#define WIFI_SSID ""
+#define WIFI_PASSWORD ""
 #endif 
 
 #ifndef SERVER_HOST
 // cellular network settings
 #define CELL_APN "hologram"
 // Freematics Hub server settings
-#define SERVER_HOST "192.168.1.114"
+#define SERVER_HOST "hub.freematics.com"
 #define SERVER_PROTOCOL PROTOCOL_UDP
 #endif
 
@@ -107,18 +104,17 @@
 
 // SIM card setting
 #define SIM_CARD_PIN ""
+#define APN_USERNAME NULL
+#define APN_PASSWORD NULL
 
 // HTTPS settings
-#define SERVER_METHOD PROTOCOL_METHOD_POST
 #define SERVER_PATH "/hub/api"
 
 #if !SERVER_PORT
 #undef SERVER_PORT
 #if SERVER_PROTOCOL == PROTOCOL_UDP
 #define SERVER_PORT 5171
-#elif SERVER_PROTOCOL == PROTOCOL_HTTP
-#define SERVER_PORT 80
-#elif SERVER_PROTOCOL == PROTOCOL_HTTPS
+#else
 #define SERVER_PORT 443
 #endif
 #endif
@@ -150,7 +146,7 @@
 **************************************/
 #ifndef STORAGE
 // change the following line to change storage type
-#define STORAGE STORAGE_NONE
+#define STORAGE STORAGE_SD
 #endif
 
 /**************************************
