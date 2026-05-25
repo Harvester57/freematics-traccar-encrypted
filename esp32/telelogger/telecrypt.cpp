@@ -1,6 +1,7 @@
 #include "config.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <ChaChaPoly.h>
 #include <HardwareSerial.h>
 #include "Crypto.h"
@@ -21,6 +22,7 @@ void encrypt_string(const unsigned char *input, size_t length, unsigned char *ou
         sscanf(CHACHA20_KEY + 2*i, "%02x", &key[i]);
     }
     chachaPoly.setKey(key, sizeof(key));
+    clean(key); // Scrub key from stack immediately after use
 
     // Generate a random nonce (IV)
     unsigned char nonce[12];
@@ -48,6 +50,7 @@ void decrypt_string(const unsigned char *input, size_t length, unsigned char *ou
         sscanf(CHACHA20_KEY + 2*i, "%02x", &key[i]);
     }
     chachaPoly.setKey(key, sizeof(key));
+    clean(key); // Scrub key from stack immediately after use
 
     // Extract the nonce (IV) from the input
     unsigned char nonce[12];
@@ -58,59 +61,37 @@ void decrypt_string(const unsigned char *input, size_t length, unsigned char *ou
     if (length < sizeof(nonce) + chachaPoly.tagSize()) {
         Serial.print("[CHACHA] Input too short to contain nonce and tag: ");
         print_hex(input, length);
-        output[0] = '\0'; // Set output to an empty string
-        return;
-    }
-
-    // Decrypt the input data
-    size_t decryptedLength = length - sizeof(nonce) - chachaPoly.tagSize();
-    chachaPoly.decrypt(output, input + sizeof(nonce), decryptedLength);
-
-    // String decryptedString = "";
-    // for (size_t i = 0; i < decryptedLength; i++) {
-    //     decryptedString += (char)output[i];
-    // }
-    // Serial.println(decryptedString);
-    
-    const unsigned char *tagPtr = input + sizeof(nonce) + decryptedLength; // actual tag
-    uint8_t computedTag[16]; // computed tag
-    chachaPoly.computeTag(computedTag, sizeof(computedTag));
-
-    // Serial.print("Tag: ");
-    // for (size_t i = 0; i < chachaPoly.tagSize(); i++) {
-    //     Serial.print(tagPtr[i], HEX);
-    //     Serial.print(" ");
-    // }
-    // Serial.println();
-    // Serial.print("Computed Tag: ");
-    // for (size_t i = 0; i < sizeof(computedTag); i++) {
-    //     Serial.print(computedTag[i], HEX);
-    //     Serial.print(" ");
-    // }
-    // Serial.println();
-
-    ///// BEGIN TAG VERIFY
-    // The crypto library implementation of tag verification crashes.
-
-    // Can never match if the expected tag length is too long.
-    if (chachaPoly.tagSize() > 16) {
-        Serial.println("[CHACHA] Authentication failed: expected tag length is too long");
-        output[0] = '\0'; // Set output to an empty string
-        return;
-    }
-
-    // Compute the tag and check it.
-    bool equal = secure_compare(computedTag, tagPtr, chachaPoly.tagSize());
-    clean(computedTag);
-
-    if (!equal) {
-        Serial.println("[CHACHA] Authentication failed!");
         output[0] = '\0';
+        chachaPoly.clear();
         return;
     }
 
-    ///// END TAG VERIFY
+    // Decrypt into a temporary buffer first — authenticate before exposing plaintext.
+    size_t decryptedLength = length - sizeof(nonce) - chachaPoly.tagSize();
+    unsigned char *tempBuf = (unsigned char *)malloc(decryptedLength);
+    if (tempBuf == NULL) {
+        Serial.println("[CHACHA] Memory allocation failed for decryption buffer");
+        output[0] = '\0';
+        chachaPoly.clear();
+        return;
+    }
+    chachaPoly.decrypt(tempBuf, input + sizeof(nonce), decryptedLength);
 
+    // Verify authentication tag before exposing plaintext.
+    const unsigned char *tagPtr = input + sizeof(nonce) + decryptedLength;
+    if (!chachaPoly.checkTag(tagPtr, chachaPoly.tagSize())) {
+        Serial.println("[CHACHA] Authentication failed!");
+        clean(tempBuf, decryptedLength); // Scrub unauthenticated plaintext
+        free(tempBuf);
+        output[0] = '\0';
+        chachaPoly.clear();
+        return;
+    }
+
+    // Authentication succeeded — copy verified plaintext to output
+    memcpy(output, tempBuf, decryptedLength);
+    clean(tempBuf, decryptedLength); // Scrub temp buffer
+    free(tempBuf);
     output[decryptedLength] = '\0';
     chachaPoly.clear();
 }

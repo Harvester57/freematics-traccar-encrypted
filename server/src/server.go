@@ -56,7 +56,10 @@ func main() {
 		}
 	}
 
-	key, _ := hex.DecodeString(config.ChachaKey)
+	key, err := hex.DecodeString(config.ChachaKey)
+	if err != nil {
+		logger.Fatalln("Invalid chacha_key. Must be valid hexadecimal:", err)
+	}
 
 	for port, dest := range config.Destinations {
 		go func(port string, dest Destination) {
@@ -85,20 +88,15 @@ func main() {
 				// Handle the message.
 				go func(addr *net.UDPAddr, buf []byte, n int) {
 					// Do the decryption.
-					var plaintext []byte
-					if len(buf[:n]) > 0 {
-						plaintext, err = encryption.Decrypt(key, buf[:n]) // Use only the part of the buffer that has data.
-						if err != nil {
-							rawHex := hex.EncodeToString(buf[:n])
-							logger.Warnf(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, fmt.Sprintf(`Error decrypting message: %s. Length: %d, Raw: "%s"`, err, len(rawHex), rawHex)))
-							plaintext = buf[:n] // Forward the raw message to the backend without bothering with decryption.
-							if len(plaintext) > 0 {
-								logger.Warningf("Encryption failed, possibly recieved unencrypted message -- %s", plaintext)
-							}
-						}
-					} else {
-						// If empty message.
-						plaintext = buf[:n]
+					if len(buf[:n]) == 0 {
+						return // Empty message — nothing to process.
+					}
+
+					plaintext, err := encryption.Decrypt(key, buf[:n])
+					if err != nil {
+						rawHex := hex.EncodeToString(buf[:n])
+						logger.Warnf(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, fmt.Sprintf(`Dropping message: decryption failed: %s. Length: %d, Raw: "%s"`, err, len(rawHex), rawHex)))
+						return // Drop the message — never forward unauthenticated data.
 					}
 
 					forwardAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", dest.Address, dest.Port))

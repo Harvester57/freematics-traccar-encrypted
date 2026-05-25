@@ -41,6 +41,10 @@ void clean(void *dest, size_t size)
         *d++ = 0;
         --size;
     }
+    // Compiler memory barrier: prevents the compiler from reordering or
+    // optimizing away the above writes at the call site level, even with
+    // link-time optimization (LTO) enabled.
+    __asm__ __volatile__("" ::: "memory");
 }
 
 /**

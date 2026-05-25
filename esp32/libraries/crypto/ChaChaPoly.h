@@ -59,6 +59,8 @@ private:
         uint64_t dataSize;
         bool dataStarted;
         uint8_t ivSize;
+        uint8_t cachedTag[16];
+        bool tagComputed;
     } state;
 };
 

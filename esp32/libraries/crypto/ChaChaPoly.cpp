@@ -48,6 +48,7 @@ ChaChaPoly::ChaChaPoly()
     state.dataSize = 0;
     state.dataStarted = false;
     state.ivSize = 8;
+    state.tagComputed = false;
 }
 
 /**
@@ -99,6 +100,7 @@ bool ChaChaPoly::setIV(const uint8_t *iv, size_t len)
     state.dataSize = 0;
     state.dataStarted = false;
     state.ivSize = len;
+    state.tagComputed = false;
     return true;
 }
 
@@ -134,17 +136,26 @@ void ChaChaPoly::addAuthData(const void *data, size_t len)
 
 void ChaChaPoly::computeTag(void *tag, size_t len)
 {
-    uint64_t sizes[2];
+    // Compute the tag only once — Poly1305 finalization is destructive.
+    if (!state.tagComputed) {
+        uint64_t sizes[2];
 
-    // Pad the final Poly1305 block and then hash the sizes.
-    poly1305.pad();
-    sizes[0] = htole64(state.authSize);
-    sizes[1] = htole64(state.dataSize);
-    poly1305.update(sizes, sizeof(sizes));
+        // Pad the final Poly1305 block and then hash the sizes.
+        poly1305.pad();
+        sizes[0] = htole64(state.authSize);
+        sizes[1] = htole64(state.dataSize);
+        poly1305.update(sizes, sizeof(sizes));
 
-    // Compute the tag and copy it to the return buffer.
-    poly1305.finalize(state.nonce, tag, len);
-    clean(sizes);
+        // Compute the full 16-byte tag and cache it.
+        poly1305.finalize(state.nonce, state.cachedTag, 16);
+        clean(sizes);
+        state.tagComputed = true;
+    }
+
+    // Copy the cached tag (possibly truncated) to the caller's buffer.
+    if (len > 16)
+        len = 16;
+    memcpy(tag, state.cachedTag, len);
 }
 
 bool ChaChaPoly::checkTag(const void *tag, size_t len)
