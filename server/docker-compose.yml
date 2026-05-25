@@ -5,7 +5,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: freematics-server:latest
+    image: ghcr.io/harvester57/freematics-traccar-encrypted:master
     container_name: freematics-encrypt-server
     restart: unless-stopped
     ports:
