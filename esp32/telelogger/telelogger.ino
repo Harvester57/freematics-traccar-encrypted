@@ -35,6 +35,9 @@
 #include "telecrypt.h"
 #endif
 
+#include "soc/soc.h"
+#include "soc/rtc_cntl_reg.h"
+
 // states
 #define STATE_STORAGE_READY 0x1
 #define STATE_OBD_READY 0x2
@@ -1377,6 +1380,9 @@ void processBLE(int timeout)
 
 void setup()
 {
+  // Disable brownout detector to prevent reboot when WiFi transmitter spikes power draw
+  WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+
   delay(500);
 
   // Initialize NVS

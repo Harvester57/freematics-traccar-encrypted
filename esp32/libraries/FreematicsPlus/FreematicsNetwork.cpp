@@ -50,10 +50,13 @@ String ClientWIFI::getIP()
 bool ClientWIFI::begin(const char* ssid, const char* password)
 {
   //listAPs();
-  WiFi.begin(ssid, password);
 #ifndef ARDUINO_ESP32C3_DEV
+  if (WiFi.getMode() == WIFI_OFF) {
+    WiFi.mode(WIFI_STA);
+  }
   WiFi.setTxPower(WIFI_POWER_8_5dBm); 
 #endif
+  WiFi.begin(ssid, password);
   return true;
 }
 
