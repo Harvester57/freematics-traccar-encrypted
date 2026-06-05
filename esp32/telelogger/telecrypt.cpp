@@ -26,8 +26,15 @@ void print_hex(const unsigned char *data, size_t length) {
     Serial.println();
 }
 
-void encrypt_string(const unsigned char *input, size_t length, unsigned char *output) {
+bool encrypt_string(const unsigned char *input, size_t length, unsigned char *output, size_t max_output_length) {
     ChaChaPoly chachaPoly;
+
+    // Check if the output buffer is large enough for nonce + encrypted data + tag
+    if (12 + length + chachaPoly.tagSize() > max_output_length) {
+        Serial.println("[CHACHA] Output buffer too small for encryption");
+        chachaPoly.clear();
+        return false;
+    }
 
     // Initialize the encryption key
     unsigned char key[32];
@@ -50,10 +57,20 @@ void encrypt_string(const unsigned char *input, size_t length, unsigned char *ou
     memcpy(output, nonce, sizeof(nonce));
 
     chachaPoly.clear();
+    return true;
 }
 
-void decrypt_string(const unsigned char *input, size_t length, unsigned char *output) {
+bool decrypt_string(const unsigned char *input, size_t length, unsigned char *output, size_t max_output_length) {
     ChaChaPoly chachaPoly;
+
+    // Check that length is long enough to contain a nonce and a tag.
+    if (length < 12 + chachaPoly.tagSize()) {
+        Serial.print("[CHACHA] Input too short to contain nonce and tag: ");
+        print_hex(input, length);
+        if (max_output_length > 0) output[0] = '\0';
+        chachaPoly.clear();
+        return false;
+    }
 
     // Initialize the decryption key
     unsigned char key[32];
@@ -66,23 +83,14 @@ void decrypt_string(const unsigned char *input, size_t length, unsigned char *ou
     memcpy(nonce, input, sizeof(nonce));
     chachaPoly.setIV(nonce, sizeof(nonce));
 
-    // Check that length is long enough to contain a nonce and a tag.
-    if (length < sizeof(nonce) + chachaPoly.tagSize()) {
-        Serial.print("[CHACHA] Input too short to contain nonce and tag: ");
-        print_hex(input, length);
-        output[0] = '\0';
-        chachaPoly.clear();
-        return;
-    }
-
     // Decrypt into a temporary buffer first — authenticate before exposing plaintext.
     size_t decryptedLength = length - sizeof(nonce) - chachaPoly.tagSize();
     unsigned char *tempBuf = (unsigned char *)malloc(decryptedLength);
     if (tempBuf == NULL) {
         Serial.println("[CHACHA] Memory allocation failed for decryption buffer");
-        output[0] = '\0';
+        if (max_output_length > 0) output[0] = '\0';
         chachaPoly.clear();
-        return;
+        return false;
     }
     chachaPoly.decrypt(tempBuf, input + sizeof(nonce), decryptedLength);
 
@@ -92,9 +100,19 @@ void decrypt_string(const unsigned char *input, size_t length, unsigned char *ou
         Serial.println("[CHACHA] Authentication failed!");
         clean(tempBuf, decryptedLength); // Scrub unauthenticated plaintext
         free(tempBuf);
-        output[0] = '\0';
+        if (max_output_length > 0) output[0] = '\0';
         chachaPoly.clear();
-        return;
+        return false;
+    }
+
+    // Check if output buffer is large enough for decrypted length + null terminator
+    if (decryptedLength >= max_output_length) {
+        Serial.println("[CHACHA] Output buffer too small for decrypted data");
+        clean(tempBuf, decryptedLength);
+        free(tempBuf);
+        if (max_output_length > 0) output[0] = '\0';
+        chachaPoly.clear();
+        return false;
     }
 
     // Authentication succeeded — copy verified plaintext to output
@@ -103,4 +121,5 @@ void decrypt_string(const unsigned char *input, size_t length, unsigned char *ou
     free(tempBuf);
     output[decryptedLength] = '\0';
     chachaPoly.clear();
+    return true;
 }

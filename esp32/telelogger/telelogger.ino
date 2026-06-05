@@ -1025,8 +1025,9 @@ void telemetry(void* inst)
       unsigned char *encrypted_buf = (unsigned char *)malloc(encrypted_buf_len);
       bool sent = false;
       if (encrypted_buf) {
-        encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf);
-        sent = teleClient.transmit((const char *)encrypted_buf, encrypted_buf_len);
+        if (encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf, encrypted_buf_len)) {
+          sent = teleClient.transmit((const char *)encrypted_buf, encrypted_buf_len);
+        }
         free(encrypted_buf);
       }
       if (sent) {

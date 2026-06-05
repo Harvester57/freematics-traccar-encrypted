@@ -260,7 +260,7 @@ bool TeleClientUDP::notify(byte event, const char* payload)
     char *orig_send_buf = netbuf.buffer();
     unsigned int orig_send_buf_len = netbuf.length();
     unsigned char encrypted_buf[256];
-    encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf);
+    if (!encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf, sizeof(encrypted_buf))) break;
     if (!wifi.send((const char *)encrypted_buf, orig_send_buf_len + 28)) break;
     #else
     if (!wifi.send(netbuf.buffer(), netbuf.length())) break;
@@ -273,7 +273,7 @@ bool TeleClientUDP::notify(byte event, const char* payload)
     char *orig_send_buf = netbuf.buffer();
     unsigned int orig_send_buf_len = netbuf.length();
     unsigned char encrypted_buf[256];
-    encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf);
+    if (!encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf, sizeof(encrypted_buf))) break;
     if (!cell.send((const char *)encrypted_buf, orig_send_buf_len + 28)) break;
     #else
     if (!cell.send(netbuf.buffer(), netbuf.length())) break;
@@ -311,7 +311,9 @@ bool TeleClientUDP::notify(byte event, const char* payload)
       continue;
     }
     char decrypted_data[RECV_BUF_SIZE];
-    decrypt_string((unsigned char *)data, bytesRecv, (unsigned char *)decrypted_data);
+    if (!decrypt_string((unsigned char *)data, bytesRecv, (unsigned char *)decrypted_data, sizeof(decrypted_data))) {
+      continue;
+    }
     data = decrypted_data;
     bytesRecv = strlen(decrypted_data);
 #endif
@@ -518,7 +520,9 @@ void TeleClientUDP::inbound()
       continue;
     }
     char decrypted_data[RECV_BUF_SIZE];
-    decrypt_string((unsigned char *)data, len, (unsigned char *)decrypted_data);
+    if (!decrypt_string((unsigned char *)data, len, (unsigned char *)decrypted_data, sizeof(decrypted_data))) {
+      continue;
+    }
     data = decrypted_data;
     len = strlen(decrypted_data);
 #endif

@@ -1,0 +1,112 @@
+{
+  "target": "esp32/telelogger",
+  "scanned_at": "2026-06-05T20:58:00Z",
+  "focus_areas": [
+    "Crypto & key management (telecrypt.cpp, config.h)",
+    "UDP client inbound data path (teleclient.cpp TeleClientUDP)",
+    "HTTP client data path (teleclient.cpp TeleClientHTTP)",
+    "Buffer & serialization (teleclient.cpp CBuffer, telestore.cpp)",
+    "HTTPD API handlers (dataserver.cpp, telelogger.ino)",
+    "BLE command interface (telelogger.ino processBLE)"
+  ],
+  "findings": [
+    {
+      "id": "F-001",
+      "file": "teleclient.cpp",
+      "line": 313,
+      "category": "stack-buffer-overflow",
+      "severity": "HIGH",
+      "confidence": 0.8,
+      "title": "Stack buffer overflow in UDP response decryption — output buffer undersized for network-controlled input",
+      "description": "In TeleClientUDP::notify() at teleclient.cpp:313, a stack buffer `char decrypted_data[RECV_BUF_SIZE]` (512 bytes) receives the output of decrypt_string(). The decrypt_string() function at telecrypt.cpp:101 writes `decryptedLength` bytes to the output buffer, then adds a null terminator at output[decryptedLength]. The decryptedLength is computed as `length - 12 (nonce) - 16 (tag) = length - 28`. Since `length` is `bytesRecv` from the network, and `bytesRecv` can be up to `RECV_BUF_SIZE - 1` (511) from wifi.receive() at line 290, the maximum decryptedLength is 483 bytes plus a null terminator = 484 bytes, which fits in 512. However, the output buffer has no explicit size parameter passed to decrypt_string(), so there is no bounds check tying the output write to the actual buffer size. If a future code change increases RECV_BUF_SIZE or if the cellular path returns more data, this becomes exploitable. More critically, the same pattern in TeleClientUDP::inbound() at teleclient.cpp:520 also uses `char decrypted_data[RECV_BUF_SIZE]` for decrypt_string output. The wifi.receive() at line 505 passes `RECV_BUF_SIZE - 1` as bufsize, limiting the read. Currently the overflow does not trigger because RECV_BUF_SIZE constrains the receive, but the decrypt_string API is unsafe by design — it accepts no output buffer size parameter.",
+      "exploit_scenario": "A compromised or malicious server sends a UDP response. Under current code, RECV_BUF_SIZE (512) limits the receive, so decrypted output (max 484 bytes) fits in the 512-byte stack buffer. However, if RECV_BUF_SIZE is increased or if the cellular modem path (cell.receive()) returns data exceeding the stack buffer's capacity without a separate length cap, decrypt_string will write past the end of decrypted_data on the stack, overwriting the return address and achieving remote code execution.",
+      "recommendation": "Add an output buffer size parameter to decrypt_string() and enforce a bounds check before the memcpy at telecrypt.cpp:101. e.g., `void decrypt_string(const unsigned char *input, size_t length, unsigned char *output, size_t output_size)` with a check `if (decryptedLength + 1 > output_size) { return; }`.",
+      "confidence_reason": "The unsafe API pattern is real. Current exploitation requires RECV_BUF_SIZE increase or cellular path bypass. Credible but conditional — the threat model already flags this as T1."
+    },
+    {
+      "id": "F-002",
+      "file": "teleclient.cpp",
+      "line": 262,
+      "category": "stack-buffer-overflow",
+      "severity": "HIGH",
+      "confidence": 0.7,
+      "title": "Fixed-size stack buffer for encryption output in notify() can overflow with large payloads",
+      "description": "In TeleClientUDP::notify() at teleclient.cpp:262 (wifi path) and :275 (cell path), a stack-allocated `unsigned char encrypted_buf[256]` is used as the output for encrypt_string(). The encrypt_string function writes `nonce(12) + ciphertext(length) + tag(16)` = `length + 28` bytes to the output buffer. The input length `orig_send_buf_len` comes from netbuf.length() — a CStorageRAM cache of 128 bytes (initialized at line 238). The maximum plaintext size is bounded by the 128-byte cache, so the encrypted output is at most 128 + 28 = 156 bytes, which fits in 256. However, the hardcoded 256-byte buffer provides no safety margin if the cache size is increased, and the encrypt_string API similarly lacks an output size parameter.",
+      "exploit_scenario": "If the CStorageRAM cache in notify() is increased beyond 228 bytes (e.g. to accommodate larger payloads or VIN data), the encrypted output (cache_size + 28) will exceed the 256-byte stack buffer, causing a stack buffer overflow. This is currently unexploitable but represents a latent vulnerability.",
+      "recommendation": "Dynamically allocate the encryption output buffer based on the actual plaintext size (as is done in the telemetry() function at telelogger.ino:1025), or add output size checking to encrypt_string(). Replace `unsigned char encrypted_buf[256]` with `unsigned char *encrypted_buf = (unsigned char *)malloc(orig_send_buf_len + 28)` with a null check.",
+      "confidence_reason": "Currently the 128-byte cache bounds prevent overflow. Latent risk — a code hygiene issue rather than an immediately exploitable vulnerability."
+    },
+    {
+      "id": "F-003",
+      "file": "teleclient.cpp",
+      "line": 289,
+      "category": "heap-buffer-overflow",
+      "severity": "MEDIUM",
+      "confidence": 0.7,
+      "title": "WiFi receive uses cell buffer but WiFi and cell may have different buffer sizes",
+      "description": "In TeleClientUDP::notify() at teleclient.cpp:289 and ::inbound() at line 504, when WiFi is connected, the code does `data = cell.getBuffer()` then passes it to `wifi.receive(data, RECV_BUF_SIZE - 1)`. The cell.getBuffer() allocates RECV_BUF_SIZE (512) bytes via malloc (FreematicsNetwork.cpp:666). The wifi.receive() writes up to RECV_BUF_SIZE-1 bytes into this buffer (FreematicsNetwork.cpp:115). This is currently safe because both use the same RECV_BUF_SIZE constant. However, the coupling between WiFi receive and the cellular module's internal buffer is fragile — if the WiFi receive size or cellular buffer size ever diverge, a heap overflow results.",
+      "exploit_scenario": "A malicious UDP response from the server is received via WiFi. The WiFi stack delivers a packet of up to RECV_BUF_SIZE-1 bytes into cell's m_buffer. Currently safe, but if WiFi receive logic changes to accept larger packets, a heap buffer overflow in the cell's m_buffer can corrupt heap metadata and lead to arbitrary code execution.",
+      "recommendation": "Use a dedicated receive buffer for WiFi with an explicit size, rather than reusing the cellular module's internal buffer. Alternatively, pass the actual buffer size from getBuffer() alongside the pointer.",
+      "confidence_reason": "Currently safe due to matching constants, but the architectural coupling is fragile and error-prone."
+    },
+    {
+      "id": "F-004",
+      "file": "teleclient.cpp",
+      "line": 568,
+      "category": "stack-buffer-overflow",
+      "severity": "MEDIUM",
+      "confidence": 0.6,
+      "title": "HTTP notify path constructs URL with unbounded VIN string into fixed-size stack buffer",
+      "description": "In TeleClientHTTP::notify() at teleclient.cpp:568-569, a 256-byte stack buffer `path` is formatted with: `snprintf(path, sizeof(path), \"%s/notify/%s?EV=%u&SSI=%d&VIN=%s\", SERVER_PATH, devid, event, rssi, vin)`. The `vin` array is declared as `char vin[18]` in telelogger.ino:98 and populated from OBD at line 557-558 via `obd.getVIN(buf, sizeof(buf))` where buf is 128 bytes, then `memcpy(vin, buf, sizeof(vin) - 1)`. The snprintf is bounded by sizeof(path)=256, so truncation occurs rather than overflow. The SERVER_PATH is \"/hub/api\" (8 chars), devid is 8 chars, so the format string produces at most ~60 chars. This is safe due to snprintf.",
+      "exploit_scenario": "Not directly exploitable — snprintf prevents overflow. However, if vin[] were to contain attacker-controlled data longer than 17 chars (e.g. from a malicious ECU response exploiting the memcpy at line 558 which copies sizeof(vin)-1 = 17 bytes from a 128-byte buffer without checking the actual VIN length), the path would be truncated, causing a malformed server request. The memcpy at line 558 is safe because sizeof(vin) is 18 and the source buffer is guaranteed to be >= 18 bytes.",
+      "recommendation": "No immediate fix needed; snprintf prevents overflow. For defense-in-depth, null-terminate vin[] explicitly after the memcpy: `vin[sizeof(vin) - 1] = '\\0';` — this is already implicitly guaranteed by the zero-initialization at declaration, but adding it after memcpy makes the intent clear.",
+      "confidence_reason": "snprintf prevents the overflow. Low signal — more of a code-quality observation."
+    },
+    {
+      "id": "F-005",
+      "file": "dataserver.cpp",
+      "line": 277,
+      "category": "path-traversal",
+      "severity": "MEDIUM",
+      "confidence": 0.5,
+      "title": "HTTP API file deletion handler uses attacker-controlled ID without validation",
+      "description": "In handlerLogDelete() at dataserver.cpp:274-277, the file ID is parsed from the URL path via `atoi(param->pucRequest + 1)` and used to construct a file path: `sprintf(param->pucBuffer, \"/DATA/%u.CSV\", id)`. Since atoi returns an integer and the path is constructed with %u format, the resulting path is always `/DATA/<number>.CSV` — no path traversal is possible through this specific pattern. The integer conversion via atoi effectively sanitizes the input.",
+      "exploit_scenario": "An attacker sends a DELETE request to `/api/delete/99999`. The handler constructs `/DATA/99999.CSV` and attempts deletion. If the file exists, it's deleted. However, the ID=fileid check prevents deletion of the active log file. Since the path format is fixed to `/DATA/<int>.CSV`, arbitrary file deletion outside /DATA/ is not possible.",
+      "recommendation": "No immediate fix needed. The %u format specifier prevents path traversal. For defense-in-depth, validate that the ID is within a reasonable range.",
+      "confidence_reason": "The integer conversion via atoi prevents path traversal. Likely false positive for the traversal category, but the handler does allow deletion of any numbered CSV file."
+    },
+    {
+      "id": "F-006",
+      "file": "teleclient.cpp",
+      "line": 40,
+      "category": "integer-overflow",
+      "severity": "MEDIUM",
+      "confidence": 0.6,
+      "title": "CBuffer::add() offset bounds check may allow off-by-one writes with crafted element sizes",
+      "description": "In CBuffer::add() at teleclient.cpp:40-52, the bounds check is: `if (offset < BUFFER_LENGTH - sizeof(ELEMENT_HEAD) - bytes)`. This checks that there's room for the header + data, but the comparison uses unsigned arithmetic. If `bytes` is large enough that `BUFFER_LENGTH - sizeof(ELEMENT_HEAD) - bytes` wraps to a large positive value (unsigned underflow), the check passes and memcpy at line 46 writes past the buffer. In practice, `bytes` comes from sizeof() calls on known types in the caller (processOBD, processGPS, processMEMS), so it's always small (4-12 bytes). The `values` pointer and `bytes` parameter are never attacker-controlled — they come from OBD reads, GPS data, and sensor reads, all of which are internal structs. The wrapping underflow would require `bytes > BUFFER_LENGTH - sizeof(ELEMENT_HEAD)` which is 256-4=252 or 384-4=380 depending on PSRAM, and no caller passes bytes anywhere near that large.",
+      "exploit_scenario": "If a malformed OBD-II response caused a caller to pass a very large `bytes` value to CBuffer::add(), the unsigned underflow in the bounds check would bypass the guard, and memcpy would write past the buffer boundary. However, all callers use fixed-size type copies (sizeof(int32_t), sizeof(float), etc.), so this is not reachable from current code paths.",
+      "recommendation": "Change the bounds check to explicitly cast to signed or add: `if (bytes > BUFFER_LENGTH || offset + sizeof(ELEMENT_HEAD) + bytes > BUFFER_LENGTH)` to avoid unsigned underflow in the comparison.",
+      "confidence_reason": "The unsigned underflow is real in theory, but all callers pass small fixed sizes. Low likelihood of exploitation."
+    },
+    {
+      "id": "F-007",
+      "file": "teleclient.cpp",
+      "line": 62,
+      "category": "heap-buffer-overflow",
+      "severity": "MEDIUM",
+      "confidence": 0.5,
+      "title": "CBuffer::serialize() reads elements from buffer without validating element count against buffer bounds",
+      "description": "In CBuffer::serialize() at teleclient.cpp:62-101, the loop iterates `total` times, reading ELEMENT_HEAD structs and their payload from the m_data buffer. The loop guard `of < offset` prevents reading past the written data, but `total` is incremented by add() without an upper bound check. If m_data were corrupted (e.g., by a buffer overflow from add()), `total` could be larger than the actual number of elements, and the loop would read past valid data. The type switch at line 68 determines bytes to advance based on hdr->type and hdr->count — if the header is corrupted, hdr->count could be large, causing `of` to jump past `offset` without the `of < offset` check catching it (since the check is only at the top of the loop). This could cause out-of-bounds reads from heap memory into the serialization output.",
+      "exploit_scenario": "A memory corruption bug (e.g., from CBuffer::add() overflow) corrupts the m_data buffer's ELEMENT_HEAD entries. When serialize() processes the corrupted headers, it reads out-of-bounds heap data and serializes it into the network transmission buffer, potentially leaking heap contents (other telemetry data, credentials, keys) to the server.",
+      "recommendation": "Add per-element bounds checking inside the serialize loop: verify that `of + sizeof(ELEMENT_HEAD) <= offset` before reading the header, and that `of + element_size <= offset` before reading the payload. Add a `default` case that breaks the loop for unknown types.",
+      "confidence_reason": "Requires prior memory corruption to trigger. Defense-in-depth issue, not independently exploitable."
+    }
+  ],
+  "summary": {
+    "total": 7,
+    "high": 2,
+    "medium": 5,
+    "low": 0,
+    "low_confidence": 0
+  }
+}
