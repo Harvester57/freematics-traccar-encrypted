@@ -19,6 +19,9 @@ This fork introduces production-ready features, deployment simplifications, secu
 *   **Expanded Diagnostics & Fuel Tracking**: Integrated native polling for extra OBD parameters like fuel level (`PID_FUEL_LEVEL`) out of the box.
 *   **Structured Logrus Logging**: Upgraded to production-grade structured logging using [sirupsen/logrus](https://github.com/sirupsen/logrus) with clear, trace-friendly request tracking.
 *   **Hardened Decryption Security**: Resolves critical memory safety issues (such as buffer overflow mitigations during packet decryption), enforces constant-time validation using `secure_compare`, and aligns with Opus 4.6 security recommendations.
+*   **Compile-Time Security Hardening**: Configures the PlatformIO toolchain with security flags (`-fstack-protector-strong`, `-fstack-clash-protection`, and format-string checks) to harden the compiled firmware against stack-based exploits.
+*   **ESP32 Power & WiFi Stability**: Mitigates hardware reboots under load by disabling the brownout detector and optimizing WiFi transmitter output power during network activity.
+*   **Proactive Threat Modeling**: Documented comprehensive threat models for the [Go server](server/THREAT_MODEL.md), [telelogger firmware](esp32/telelogger/THREAT_MODEL.md), [cryptographic library](esp32/libraries/crypto/THREAT_MODEL.md), and [TinyGPS](esp32/libraries/TinyGPS/THREAT_MODEL.md) components to map attack surfaces and security controls.
 *   **Automated CI/CD**: Automated workflows via GitHub Actions for multi-platform Go binary compiling and secure Docker image builds.
 
 ---
