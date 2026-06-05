@@ -92,7 +92,11 @@ The custom packet layout is uniform for both client-to-server and server-to-clie
     ```cpp
     #define CHACHA20_KEY "YOUR_64_CHAR_HEX_KEY"
     ```
-4.  Compile and upload the firmware to your ESP32 tracker via PlatformIO.
+4.  Compile the firmware using PlatformIO Core CLI from the `/esp32/telelogger` directory:
+    ```powershell
+    ~\.platformio\penv\Scripts\platformio.exe run --environment esp32dev
+    ```
+    Or upload directly to your ESP32 tracker via PlatformIO.
 
 ### Configuring and Running the Go Server
 1.  Navigate to the `/server` directory.
