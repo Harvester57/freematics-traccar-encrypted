@@ -112,7 +112,7 @@ const char* defaultPages[]={"index.html"};
 
 const char *dayNames="Sun\0Mon\0Tue\0Wed\0Thu\0Fri\0Sat";
 const char *monthNames="Jan\0Feb\0Mar\0Apr\0May\0Jun\0Jul\0Aug\0Sep\0Oct\0Nov\0Dec";
-const char *httpDateTimeFormat="%s, %02d %s %d %02d:%02d:%02d GMT";
+const char httpDateTimeFormat[]="%s, %02d %s %d %02d:%02d:%02d GMT";
 
 char* mwGetVarValue(HttpVariables* vars, const char *varname, const char *defval)
 {
@@ -1223,6 +1223,8 @@ int _mwStrHeadMatch(char** pbuf1, const char* buf2) {
 	return i;
 }
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
 void _mwSendErrorPage(SOCKET socket, const char* header, const char* body)
 {
 	char hdr[128];
@@ -1231,6 +1233,7 @@ void _mwSendErrorPage(SOCKET socket, const char* header, const char* body)
 	send(socket, hdr, hdrsize, 0);
 	send(socket, body, len, 0);
 }
+#pragma GCC diagnostic pop
 
 #ifdef WIN32
 #define OPEN_FLAG O_RDONLY|0x8000
@@ -1627,7 +1630,7 @@ void mwDecodeString(char* pchString)
       break;
     case '\0':
       bEnd=TRUE;
-      // drop through
+      // fall through
     default:
       // copy character
       *pchOutput=*pchInput;

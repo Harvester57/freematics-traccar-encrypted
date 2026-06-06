@@ -569,7 +569,7 @@ bool FreematicsESP32::gpsBeginExt(int baudrate)
 #ifndef ARDUINO_ESP32C3_DEV
             if (m_flags & FLAG_GNSS_SOFT_SERIAL) {
                 // apply GNSS settings
-                for (int i = 0; i < sizeof(gpsSettings); i++) softSerialTx(GPS_SOFT_BAUDRATE, gpsSettings[i]);
+                for (int j = 0; j < sizeof(gpsSettings); j++) softSerialTx(GPS_SOFT_BAUDRATE, gpsSettings[j]);
             }
 #endif
             return true;
@@ -916,7 +916,7 @@ bool FreematicsESP32::begin(bool useCoProc, bool useCellular)
         linkUART->end();
         delay(50);
 #endif
-        if (linkUART->begin(115200)) {
+        if (linkUART && linkUART->begin(115200)) {
             link = linkUART;
             for (byte n = 0; n < 3 && !getDeviceType(); n++);
             if (devType) {

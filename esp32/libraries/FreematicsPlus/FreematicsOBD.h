@@ -20,7 +20,7 @@ byte hex2uint8(const char *p);
 class COBD
 {
 public:
-	void begin(CLink* link) { this->link = link; }
+	void begin(CLink* linkInput) { this->link = linkInput; }
 	// initialize OBD-II connection
 	bool init(OBD_PROTOCOLS protocol = PROTO_AUTO, bool quick = false);
 	// reset OBD-II connection

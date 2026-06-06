@@ -390,7 +390,7 @@ bool CellSIMCOM::setGPS(bool on)
       if (sendCommand("AT+CGNSINF\r", 1000, "+CGNSINF:")) {
         if (!m_gps) {
           m_gps = new GPS_DATA;
-          memset(m_gps, 0, sizeof(GPS_DATA));
+          if (m_gps) memset(m_gps, 0, sizeof(GPS_DATA));
         }
         return true;
       }
@@ -401,7 +401,7 @@ bool CellSIMCOM::setGPS(bool on)
         if ((sendCommand("AT+CGPS=1,1\r") && sendCommand("AT+CGPSINFO=1\r")) || sendCommand("AT+CGPS?\r", 100, "+CGPS: 1")) {
           if (!m_gps) {
             m_gps = new GPS_DATA;
-            memset(m_gps, 0, sizeof(GPS_DATA));
+            if (m_gps) memset(m_gps, 0, sizeof(GPS_DATA));
           }
           return true;
         }
@@ -968,12 +968,12 @@ char* CellHTTP::receive(int* pbytes, unsigned int timeout)
     // only process first chunk now
     sprintf(m_buffer, "AT+CHTTPSRECV=%u\r", RECV_BUF_SIZE - 32);
     if (sendCommand(m_buffer, timeout, legacy ? "\r\n+CHTTPSRECV: 0" : "\r\n+CHTTPSRECV:0")) {
-      char *p = strstr(m_buffer, "\r\n+CHTTPSRECV: DATA");
-      if (p) {
-        if ((p = strchr(p, ','))) {
-          received = atoi(p + 1);
-          char *q = strchr(p, '\n');
-          payload = q ? (q + 1) : p;
+      char *pRecv = strstr(m_buffer, "\r\n+CHTTPSRECV: DATA");
+      if (pRecv) {
+        if ((pRecv = strchr(pRecv, ','))) {
+          received = atoi(pRecv + 1);
+          char *q = strchr(pRecv, '\n');
+          payload = q ? (q + 1) : pRecv;
           if (m_buffer + RECV_BUF_SIZE - payload > received) {
             payload[received] = 0;
           }

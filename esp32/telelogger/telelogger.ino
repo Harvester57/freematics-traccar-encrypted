@@ -337,7 +337,7 @@ bool processGPS(CBuffer* buffer)
     }
     return false;
   }
-  if ((lastGPSLat || lastGPSLng) && (abs(gd->lat - lastGPSLat) > 0.001 || abs(gd->lng - lastGPSLng) > 0.001)) {
+  if ((lastGPSLat || lastGPSLng) && (abs(gd->lat - lastGPSLat) > 0.001f || abs(gd->lng - lastGPSLng) > 0.001f)) {
     // invalid coordinates data
     lastGPSLat = 0;
     lastGPSLng = 0;
@@ -460,11 +460,11 @@ void calibrateMEMS()
     int n;
     unsigned long t = millis();
     for (n = 0; millis() - t < 1000; n++) {
-      float acc[3];
-      if (!mems->read(acc)) continue;
-      accBias[0] += acc[0];
-      accBias[1] += acc[1];
-      accBias[2] += acc[2];
+      float localAcc[3];
+      if (!mems->read(localAcc)) continue;
+      accBias[0] += localAcc[0];
+      accBias[1] += localAcc[1];
+      accBias[2] += localAcc[2];
       delay(10);
     }
     accBias[0] /= n;
@@ -595,7 +595,7 @@ void showStats()
 {
   uint32_t t = millis() - teleClient.startTime;
   char buf[32];
-  sprintf(buf, "%02u:%02u.%c ", t / 60000, (t % 60000) / 1000, (t % 1000) / 100 + '0');
+  sprintf(buf, "%02lu:%02lu.%c ", (unsigned long)(t / 60000), (unsigned long)((t % 60000) / 1000), (char)((t % 1000) / 100 + '0'));
   Serial.print("[NET] ");
   Serial.print(buf);
   Serial.print("| Packet #");
@@ -627,20 +627,20 @@ bool waitMotion(long timeout)
     do {
       // calculate relative movement
       float motion = 0;
-      float acc[3];
-      if (!mems->read(acc)) continue;
+      float localAcc[3];
+      if (!mems->read(localAcc)) continue;
       if (accCount == 10) {
         accCount = 0;
         accSum[0] = 0;
         accSum[1] = 0;
         accSum[2] = 0;
       }
-      accSum[0] += acc[0];
-      accSum[1] += acc[1];
-      accSum[2] += acc[2];
+      accSum[0] += localAcc[0];
+      accSum[1] += localAcc[1];
+      accSum[2] += localAcc[2];
       accCount++;
       for (byte i = 0; i < 3; i++) {
-        float m = (acc[i] - accBias[i]);
+        float m = (localAcc[i] - accBias[i]);
         motion += m * m;
       }
 #if ENABLE_HTTPD

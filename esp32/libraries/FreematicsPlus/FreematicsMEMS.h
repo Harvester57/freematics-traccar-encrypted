@@ -195,26 +195,26 @@ enum {
 #define Ascale AFS_2G
 #define Gscale GFS_250DPS
 
-#define mRes (10.*4912./32760.0)
+#define mRes (10.f*4912.f/32760.0f)
 
 #if Ascale == AFS_2G
-  #define aRes (2.0/32768.0)
+  #define aRes (2.0f/32768.0f)
 #elif Ascale == AFS_4G
-  #define aRes (4.0/32768.0)
+  #define aRes (4.0f/32768.0f)
 #elif Ascale == AFS_8G
-  #define aRes (8.0/32768.0)
+  #define aRes (8.0f/32768.0f)
 #elif Ascale == AFS_16G
-  #define aRes (16.0/32768.0)
+  #define aRes (16.0f/32768.0f)
 #endif
 
 #if Gscale == GFS_250DPS
-  #define gRes (250.0/32768.0)
+  #define gRes (250.0f/32768.0f)
 #elif Gscale == GFS_500DPS
-  #define gRes (500.0/32768.0)
+  #define gRes (500.0f/32768.0f)
 #elif Gscale == GFS_1000DPS
-  #define gRes (1000.0/32768.0)
+  #define gRes (1000.0f/32768.0f)
 #elif Gscale == GFS_2000DPS
-  #define gRes (2000.0/32768.0)
+  #define gRes (2000.0f/32768.0f)
 #endif
 
 // 2 for 8 Hz, 6 for 100 Hz continuous magnetometer data read
@@ -231,8 +231,8 @@ public:
 private:
   float q[4] = {1.0f, 0.0f, 0.0f, 0.0f};    // vector to hold quaternion
   // global constants for 9 DoF fusion and AHRS (Attitude and Heading Reference System)
-  float GyroMeasError = PI * (40.0f / 180.0f);   // gyroscope measurement error in rads/s (start at 40 deg/s)
-  float GyroMeasDrift = PI * (0.0f  / 180.0f);   // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
+  float GyroMeasError = (float)PI * (40.0f / 180.0f);   // gyroscope measurement error in rads/s (start at 40 deg/s)
+  float GyroMeasDrift = (float)PI * (0.0f  / 180.0f);   // gyroscope measurement drift in rad/s/s (start at 0.0 deg/s/s)
   float beta = sqrt(3.0f / 4.0f) * GyroMeasError;   // compute beta
   float zeta = sqrt(3.0f / 4.0f) * GyroMeasDrift;   // compute zeta, the other free parameter in the Madgwick scheme usually set to a small or zero value
   uint32_t firstUpdate = 0; // used to calculate integration interval
@@ -271,7 +271,7 @@ private:
   void readGyroData(int16_t *);
   void readMagData(int16_t *);
   bool initAK8963(float *);
-  void calibrateMPU9250(float * gyroBias, float * accelBias);
+  void calibrateMPU9250(float * gyroBiasOut, float * accelBiasOut);
   void MPU9250SelfTest(float * destination);
   void writeByteAK(uint8_t, uint8_t);
   uint8_t readByteAK(uint8_t);

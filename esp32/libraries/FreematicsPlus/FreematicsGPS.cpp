@@ -63,6 +63,7 @@ bool TinyGPS::encode(char c)
   {
   case ',': // term terminators
     _parity ^= ',';
+    // fallthrough
   case '\r':
   case '\n':
   case '*':
@@ -345,9 +346,9 @@ float TinyGPS::course_to (float lat1, float long1, float lat2, float long2)
   float a2 = sin(lat1) * cos(lat2) * cos(dlon);
   a2 = cos(lat1) * sin(lat2) - a2;
   a2 = atan2(a1, a2);
-  if (a2 < 0.0)
+  if (a2 < 0.0f)
   {
-    a2 += TWO_PI;
+    a2 += (float)TWO_PI;
   }
   return degrees(a2);
 }
@@ -390,8 +391,8 @@ void TinyGPS::f_get_position(float *latitude, float *longitude, unsigned long *f
 {
   long lat, lon;
   get_position(&lat, &lon, fix_age);
-  *latitude = lat == GPS_INVALID_ANGLE ? GPS_INVALID_F_ANGLE : (lat / 100000.0);
-  *longitude = lat == GPS_INVALID_ANGLE ? GPS_INVALID_F_ANGLE : (lon / 100000.0);
+  *latitude = lat == GPS_INVALID_ANGLE ? GPS_INVALID_F_ANGLE : (lat / 100000.0f);
+  *longitude = lat == GPS_INVALID_ANGLE ? GPS_INVALID_F_ANGLE : (lon / 100000.0f);
 }
 
 void TinyGPS::crack_datetime(int *year, byte *month, byte *day,
@@ -414,17 +415,17 @@ void TinyGPS::crack_datetime(int *year, byte *month, byte *day,
 
 float TinyGPS::f_altitude()
 {
-  return _altitude == GPS_INVALID_ALTITUDE ? GPS_INVALID_F_ALTITUDE : _altitude / 100.0;
+  return _altitude == GPS_INVALID_ALTITUDE ? GPS_INVALID_F_ALTITUDE : _altitude / 100.0f;
 }
 
 float TinyGPS::f_course()
 {
-  return _course == GPS_INVALID_ANGLE ? GPS_INVALID_F_ANGLE : _course / 100.0;
+  return _course == GPS_INVALID_ANGLE ? GPS_INVALID_F_ANGLE : _course / 100.0f;
 }
 
 float TinyGPS::f_speed_knots()
 {
-  return _speed == GPS_INVALID_SPEED ? GPS_INVALID_F_SPEED : _speed / 100.0;
+  return _speed == GPS_INVALID_SPEED ? GPS_INVALID_F_SPEED : _speed / 100.0f;
 }
 
 float TinyGPS::f_speed_mph()

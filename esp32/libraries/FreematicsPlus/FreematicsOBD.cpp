@@ -473,9 +473,9 @@ void COBD::setHeaderID(uint32_t num)
 {
 	if (link) {
 		char buf[32];
-		sprintf(buf, "ATSH %X\r", num & 0xffffff);
+		sprintf(buf, "ATSH %lX\r", (unsigned long)(num & 0xffffff));
 		link->sendCommand(buf, buf, sizeof(buf), 1000);
-		sprintf(buf, "ATCP %X\r", num & 0x1f);
+		sprintf(buf, "ATCP %lX\r", (unsigned long)(num & 0x1f));
 		link->sendCommand(buf, buf, sizeof(buf), 1000);
 	}
 }
@@ -492,7 +492,7 @@ void COBD::setHeaderFilter(uint32_t num)
 {
 	if (link) {
 		char buf[32];
-		sprintf(buf, "ATCF %X\r", num);
+		sprintf(buf, "ATCF %lX\r", (unsigned long)num);
 		link->sendCommand(buf, buf, sizeof(buf), 1000);
 	}
 }
@@ -501,7 +501,7 @@ void COBD::setHeaderMask(uint32_t bitmask)
 {
 	if (link) {
 		char buf[32];
-		sprintf(buf, "ATCM %X\r", bitmask);
+		sprintf(buf, "ATCM %lX\r", (unsigned long)bitmask);
 		link->sendCommand(buf, buf, sizeof(buf), 1000);
 	}
 }

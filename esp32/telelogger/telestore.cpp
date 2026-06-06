@@ -47,7 +47,10 @@ void CStorage::log(uint16_t pid, float values[], uint8_t count, const char* fmt)
     char *p = buf + snprintf(buf, sizeof(buf), "%X%c", pid, m_delimiter);
     for (byte m = 0; m < count && (p - buf) < sizeof(buf) - 3; m++) {
         if (m > 0) *(p++) = ';';
-        int l = snprintf(p, sizeof(buf) - (p - buf), fmt, values[m]);
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wformat-nonliteral"
+        int l = snprintf(p, sizeof(buf) - (p - buf), fmt, (double)values[m]);
+#pragma GCC diagnostic pop
         char *q = strchr(p, '.');
         if (q && atoi(q + 1) == 0) {
             *q = 0;

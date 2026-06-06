@@ -118,9 +118,9 @@ void CQuaterion::MadgwickQuaternionUpdate(float ax, float ay, float az, float gx
 
 void CQuaterion::getOrientation(ORIENTATION* ori)
 {
-     ori->yaw  = atan2(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]) * 180.0f / PI;
-     ori->pitch = -asin(2.0f * (q[1] * q[3] - q[0] * q[2])) * 180.0f / PI;
-     ori->roll  = atan2(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]) * 180.0f / PI;
+     ori->yaw  = atan2f(2.0f * (q[1] * q[2] + q[0] * q[3]), q[0] * q[0] + q[1] * q[1] - q[2] * q[2] - q[3] * q[3]) * 180.0f / (float)PI;
+     ori->pitch = -asinf(2.0f * (q[1] * q[3] - q[0] * q[2])) * 180.0f / (float)PI;
+     ori->roll  = atan2f(2.0f * (q[0] * q[1] + q[2] * q[3]), q[0] * q[0] - q[1] * q[1] - q[2] * q[2] + q[3] * q[3]) * 180.0f / (float)PI;
 }
 
 /*******************************************************************************
@@ -227,9 +227,9 @@ bool MPU9250::initAK8963(float * destination)
   rawData[0] = readByteAK(AK8963_ASAX);
   rawData[1] = readByteAK(AK8963_ASAY);
   rawData[2] = readByteAK(AK8963_ASAZ);
-  destination[0] =  (float)(rawData[0] - 128)/256. + 1.;   // Return x-axis sensitivity adjustment values, etc.
-  destination[1] =  (float)(rawData[1] - 128)/256. + 1.;
-  destination[2] =  (float)(rawData[2] - 128)/256. + 1.;
+  destination[0] =  (float)(rawData[0] - 128)/256.0f + 1.0f;   // Return x-axis sensitivity adjustment values, etc.
+  destination[1] =  (float)(rawData[1] - 128)/256.0f + 1.0f;
+  destination[2] =  (float)(rawData[2] - 128)/256.0f + 1.0f;
   writeByteAK(AK8963_CNTL, 0x00); // Power down magnetometer
   delay(10);
   // Configure the magnetometer for continuous read and highest resolution
@@ -243,9 +243,9 @@ bool MPU9250::initAK8963(float * destination)
 // Function which accumulates gyro and accelerometer data after device
 // initialization. It calculates the average of the at-rest readings and then
 // loads the resulting offsets into accelerometer and gyro bias registers.
-void MPU9250::calibrateMPU9250(float * gyroBias, float * accelBias)
+void MPU9250::calibrateMPU9250(float * gyroBiasOut, float * accelBiasOut)
 {
-  uint8_t data[12]; // data array to hold accelerometer and gyro x, y, z, data
+  uint8_t data[12] = {0}; // data array to hold accelerometer and gyro x, y, z, data
   uint16_t ii, packet_count, fifo_count;
   int32_t gyro_bias[3]  = {0, 0, 0}, accel_bias[3] = {0, 0, 0};
 
@@ -335,9 +335,9 @@ void MPU9250::calibrateMPU9250(float * gyroBias, float * accelBias)
   writeByte(ZG_OFFSET_L, data[5]);
 
 // Output scaled gyro biases for display in the main program
-  gyroBias[0] = (float) gyro_bias[0]/(float) gyrosensitivity;
-  gyroBias[1] = (float) gyro_bias[1]/(float) gyrosensitivity;
-  gyroBias[2] = (float) gyro_bias[2]/(float) gyrosensitivity;
+  gyroBiasOut[0] = (float) gyro_bias[0]/(float) gyrosensitivity;
+  gyroBiasOut[1] = (float) gyro_bias[1]/(float) gyrosensitivity;
+  gyroBiasOut[2] = (float) gyro_bias[2]/(float) gyrosensitivity;
 
 // Construct the accelerometer biases for push to the hardware accelerometer bias registers. These registers contain
 // factory trim values which must be added to the calculated accelerometer biases; on boot up these registers will hold
@@ -386,9 +386,9 @@ void MPU9250::calibrateMPU9250(float * gyroBias, float * accelBias)
   writeByte(ZA_OFFSET_L, data[5]);
 
 // Output scaled accelerometer biases for display in the main program
-   accelBias[0] = (float)accel_bias[0]/(float)accelsensitivity;
-   accelBias[1] = (float)accel_bias[1]/(float)accelsensitivity;
-   accelBias[2] = (float)accel_bias[2]/(float)accelsensitivity;
+   accelBiasOut[0] = (float)accel_bias[0]/(float)accelsensitivity;
+   accelBiasOut[1] = (float)accel_bias[1]/(float)accelsensitivity;
+   accelBiasOut[2] = (float)accel_bias[2]/(float)accelsensitivity;
 }
 
 
@@ -397,7 +397,7 @@ void MPU9250::MPU9250SelfTest(float * destination) // Should return percent devi
 {
   uint8_t rawData[6] = {0, 0, 0, 0, 0, 0};
   uint8_t selfTest[6];
-  int16_t gAvg[3], aAvg[3], aSTAvg[3], gSTAvg[3];
+  int16_t gAvg[3] = {0}, aAvg[3] = {0}, aSTAvg[3] = {0}, gSTAvg[3] = {0};
   float factoryTrim[6];
   uint8_t FS = 0;
 
@@ -462,18 +462,18 @@ void MPU9250::MPU9250SelfTest(float * destination) // Should return percent devi
   selfTest[5] = readByte(SELF_TEST_Z_GYRO);  // Z-axis gyro self-test results
 
   // Retrieve factory self-test value from self-test code reads
-  factoryTrim[0] = (float)(2620/1<<FS)*(pow( 1.01 , ((float)selfTest[0] - 1.0) )); // FT[Xa] factory trim calculation
-  factoryTrim[1] = (float)(2620/1<<FS)*(pow( 1.01 , ((float)selfTest[1] - 1.0) )); // FT[Ya] factory trim calculation
-  factoryTrim[2] = (float)(2620/1<<FS)*(pow( 1.01 , ((float)selfTest[2] - 1.0) )); // FT[Za] factory trim calculation
-  factoryTrim[3] = (float)(2620/1<<FS)*(pow( 1.01 , ((float)selfTest[3] - 1.0) )); // FT[Xg] factory trim calculation
-  factoryTrim[4] = (float)(2620/1<<FS)*(pow( 1.01 , ((float)selfTest[4] - 1.0) )); // FT[Yg] factory trim calculation
-  factoryTrim[5] = (float)(2620/1<<FS)*(pow( 1.01 , ((float)selfTest[5] - 1.0) )); // FT[Zg] factory trim calculation
+  factoryTrim[0] = (float)(2620/1<<FS)*(powf( 1.01f , ((float)selfTest[0] - 1.0f) )); // FT[Xa] factory trim calculation
+  factoryTrim[1] = (float)(2620/1<<FS)*(powf( 1.01f , ((float)selfTest[1] - 1.0f) )); // FT[Ya] factory trim calculation
+  factoryTrim[2] = (float)(2620/1<<FS)*(powf( 1.01f , ((float)selfTest[2] - 1.0f) )); // FT[Za] factory trim calculation
+  factoryTrim[3] = (float)(2620/1<<FS)*(powf( 1.01f , ((float)selfTest[3] - 1.0f) )); // FT[Xg] factory trim calculation
+  factoryTrim[4] = (float)(2620/1<<FS)*(powf( 1.01f , ((float)selfTest[4] - 1.0f) )); // FT[Yg] factory trim calculation
+  factoryTrim[5] = (float)(2620/1<<FS)*(powf( 1.01f , ((float)selfTest[5] - 1.0f) )); // FT[Zg] factory trim calculation
 
  // Report results as a ratio of (STR - FT)/FT; the change from Factory Trim of the Self-Test Response
  // To get percent, must multiply by 100
   for (int i = 0; i < 3; i++) {
-    destination[i]   = 100.0*((float)(aSTAvg[i] - aAvg[i]))/factoryTrim[i];   // Report percent differences
-    destination[i+3] = 100.0*((float)(gSTAvg[i] - gAvg[i]))/factoryTrim[i+3]; // Report percent differences
+    destination[i]   = 100.0f*((float)(aSTAvg[i] - aAvg[i]))/factoryTrim[i];   // Report percent differences
+    destination[i+3] = 100.0f*((float)(gSTAvg[i] - gAvg[i]))/factoryTrim[i+3]; // Report percent differences
   }
 }
 
@@ -708,11 +708,11 @@ bool MPU9250::read(float* acc, float* gyr, float* mag, float* temp, ORIENTATION*
   }
   if (temp) {
     int t = readTempData();
-    *temp = (float)t / 333.87 + 21;
+    *temp = (float)t / 333.87f + 21.0f;
   }
 
   if (quaterion && acc && gyr && mag) {
-    quaterion->MadgwickQuaternionUpdate(acc[0], acc[1], acc[2], gyr[0]*PI/180.0f, gyr[1]*PI/180.0f, gyr[2]*PI/180.0f,  mag[0],  mag[1], mag[2]);
+    quaterion->MadgwickQuaternionUpdate(acc[0], acc[1], acc[2], gyr[0]*(float)PI/180.0f, gyr[1]*(float)PI/180.0f, gyr[2]*(float)PI/180.0f,  mag[0],  mag[1], mag[2]);
     quaterion->getOrientation(ori);
   }
   return true;
@@ -845,7 +845,7 @@ bool ICM_42627::read(float* acc, float* gyr, float* mag, float* temp, ORIENTATIO
     gyr[2] = (float)gyroCount[2]*gRes;
   }
   if (temp) {
-    *temp = (float)readTempData() / 132.48 + 25.0;
+    *temp = (float)readTempData() / 132.48f + 25.0f;
   }
   return true;
 }
@@ -920,7 +920,7 @@ float             ICM_20948::magZ                ( void ){
 }
 
 float               ICM_20948::getMagUT            ( int16_t axis_val ){
-    return (((float)axis_val)*0.15);
+    return (((float)axis_val)*0.15f);
 }
 
 float             ICM_20948::accX                ( void ){
@@ -937,10 +937,10 @@ float             ICM_20948::accZ                ( void ){
 
 float               ICM_20948::getAccMG            ( int16_t axis_val ){
     switch(agmt.fss.a){
-        case 0 : return (((float)axis_val)/16.384); break;
-        case 1 : return (((float)axis_val)/8.192); break;
-        case 2 : return (((float)axis_val)/4.096); break;
-        case 3 : return (((float)axis_val)/2.048); break;
+        case 0 : return (((float)axis_val)/16.384f); break;
+        case 1 : return (((float)axis_val)/8.192f); break;
+        case 2 : return (((float)axis_val)/4.096f); break;
+        case 3 : return (((float)axis_val)/2.048f); break;
         default : return 0; break;
     }
 }
@@ -959,10 +959,10 @@ float             ICM_20948::gyrZ                ( void ){
 
 float               ICM_20948::getGyrDPS            ( int16_t axis_val ){
     switch(agmt.fss.g){
-        case 0 : return (((float)axis_val)/131); break;
-        case 1 : return (((float)axis_val)/65.5); break;
-        case 2 : return (((float)axis_val)/32.8); break;
-        case 3 : return (((float)axis_val)/16.4); break;
+        case 0 : return (((float)axis_val)/131.0f); break;
+        case 1 : return (((float)axis_val)/65.5f); break;
+        case 2 : return (((float)axis_val)/32.8f); break;
+        case 3 : return (((float)axis_val)/16.4f); break;
         default : return 0; break;
     }
 }
@@ -972,7 +972,7 @@ float             ICM_20948::temp                 ( void ){
 }
 
 float               ICM_20948::getTempC             ( int16_t val ){
-    return (((float)val)/333.87) + 21;
+    return (((float)val)/333.87f) + 21.0f;
 }
 
 
@@ -1556,7 +1556,7 @@ bool ICM_20948_I2C::read(float* acc, float* gyr, float* mag, float* tmp, ORIENTA
     *tmp = temp();
   }
   if (quaterion && acc && gyr && mag) {
-    quaterion->MadgwickQuaternionUpdate(acc[0], acc[1], acc[2], gyr[0]*PI/180.0f, gyr[1]*PI/180.0f, gyr[2]*PI/180.0f,  mag[0],  mag[1], mag[2]);
+    quaterion->MadgwickQuaternionUpdate(acc[0], acc[1], acc[2], gyr[0]*(float)PI/180.0f, gyr[1]*(float)PI/180.0f, gyr[2]*(float)PI/180.0f,  mag[0],  mag[1], mag[2]);
     quaterion->getOrientation(ori);
   }
   return true;
