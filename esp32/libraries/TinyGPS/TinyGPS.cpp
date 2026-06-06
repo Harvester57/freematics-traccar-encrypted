@@ -115,16 +115,19 @@ byte TinyGPS::from_hex(char a)
     return a - '0';
 }
 
-byte TinyGPS::hex2uint8(const char *p)
+byte TinyGPS::hex2uint8(const char *p, bool &valid)
 {
 	byte c1 = *p;
 	byte c2 = *(p + 1);
+	valid = true;
 	if (c1 >= 'A' && c1 <= 'F')
 		c1 -= 7;
 	else if (c1 >= 'a' && c1 <= 'f')
 		c1 -= 39;
-	else if (c1 < '0' || c1 > '9')
+	else if (c1 < '0' || c1 > '9') {
+		valid = false;
 		return 0;
+	}
 
 	if (c2 == 0)
 		return (c1 & 0xf);
@@ -132,8 +135,10 @@ byte TinyGPS::hex2uint8(const char *p)
 		c2 -= 7;
 	else if (c2 >= 'a' && c2 <= 'f')
 		c2 -= 39;
-	else if (c2 < '0' || c2 > '9')
+	else if (c2 < '0' || c2 > '9') {
+		valid = false;
 		return 0;
+	}
 
 	return c1 << 4 | (c2 & 0xf);
 }
@@ -183,7 +188,9 @@ bool TinyGPS::term_complete()
 {
   if (_is_checksum_term)
   {
-    byte checksum = hex2uint8(_term);
+    bool checksum_valid;
+    byte checksum = hex2uint8(_term, checksum_valid);
+    if (!checksum_valid) checksum = ~_parity; // force mismatch on invalid hex
     if (checksum == _parity)
     {
 #ifndef _GPS_NO_STATS
@@ -237,7 +244,10 @@ bool TinyGPS::term_complete()
     return false;
   }
 
-  if (_sentence_type != _GPS_SENTENCE_OTHER && _term[0])
+  // Guard the dispatch to prevent 5-bit truncation aliasing in the COMBINE macro.
+  // Since COMBINE masks term_number to 5 bits, terms >= 32 would wrap and alias
+  // earlier fields. This check forces terms past field 31 to fall through silently.
+  if (_sentence_type != _GPS_SENTENCE_OTHER && _term[0] && _term_number < 32)
     switch(COMBINE(_sentence_type, _term_number))
   {
     case COMBINE(_GPS_SENTENCE_GPRMC, 1): // Time in both sentences
@@ -293,11 +303,20 @@ bool TinyGPS::term_complete()
   return false;
 }
 
+// Maximum digits to accumulate before clamping to prevent signed overflow.
+// 32-bit long max is 2,147,483,647 (10 digits). We stop at 9 digits
+// so that the "10 * ret" multiplication on the 10th iteration cannot overflow.
+#define _GPS_ATOL_MAX_DIGITS 9
+
 long TinyGPS::gpsatol(const char *str)
 {
   long ret = 0;
-  while (gpsisdigit(*str))
+  byte digits = 0;
+  while (gpsisdigit(*str) && digits < _GPS_ATOL_MAX_DIGITS)
+  {
     ret = 10 * ret + *str++ - '0';
+    ++digits;
+  }
   return ret;
 }
 
@@ -362,8 +381,12 @@ const char *TinyGPS::cardinal (float course)
 {
   static const char* directions[] = {"N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"};
 
-  int direction = (int)((course + 11.25f) / 22.5f);
-  return directions[direction % 16];
+  // Normalize course index to prevent out-of-bounds read on negative values.
+  // In C++, the % operator on negative values returns a negative or zero result,
+  // so we add 16 to negative modulo results to bring the index back to [0, 15].
+  int direction = (int)((course + 11.25f) / 22.5f) % 16;
+  if (direction < 0) direction += 16;
+  return directions[direction];
 }
 
 // lat/long in hundred thousandths of a degree and age of fix in milliseconds

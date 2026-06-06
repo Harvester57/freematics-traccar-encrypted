@@ -125,7 +125,7 @@ private:
 
   // internal utilities
   byte from_hex(char a);
-  byte hex2uint8(const char* p);
+  byte hex2uint8(const char* p, bool &valid);
   unsigned long parse_decimal();
   unsigned long parse_degrees();
   bool term_complete();
