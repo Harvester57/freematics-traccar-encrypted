@@ -315,22 +315,22 @@ float TinyGPS::distance_between (float lat1, float long1, float lat2, float long
   // distance computation for hypothetical sphere of radius 6372795 meters.
   // Because Earth is no exact sphere, rounding errors may be up to 0.5%.
   // Courtesy of Maarten Lamers
-  float delta = radians(long1-long2);
-  float sdlong = sin(delta);
-  float cdlong = cos(delta);
-  lat1 = radians(lat1);
-  lat2 = radians(lat2);
-  float slat1 = sin(lat1);
-  float clat1 = cos(lat1);
-  float slat2 = sin(lat2);
-  float clat2 = cos(lat2);
+  float delta = (long1-long2) * (float)DEG_TO_RAD;
+  float sdlong = sinf(delta);
+  float cdlong = cosf(delta);
+  lat1 = lat1 * (float)DEG_TO_RAD;
+  lat2 = lat2 * (float)DEG_TO_RAD;
+  float slat1 = sinf(lat1);
+  float clat1 = cosf(lat1);
+  float slat2 = sinf(lat2);
+  float clat2 = cosf(lat2);
   delta = (clat1 * slat2) - (slat1 * clat2 * cdlong);
-  delta = sq(delta);
-  delta += sq(clat2 * sdlong);
-  delta = sqrt(delta);
+  delta = delta * delta;
+  delta += (clat2 * sdlong) * (clat2 * sdlong);
+  delta = sqrtf(delta);
   float denom = (slat1 * slat2) + (clat1 * clat2 * cdlong);
-  delta = atan2(delta, denom);
-  return delta * 6372795;
+  delta = atan2f(delta, denom);
+  return delta * 6372795.0f;
 }
 
 float TinyGPS::course_to (float lat1, float long1, float lat2, float long2)
@@ -339,18 +339,18 @@ float TinyGPS::course_to (float lat1, float long1, float lat2, float long2)
   // both specified as signed decimal-degrees latitude and longitude.
   // Because Earth is no exact sphere, calculated course may be off by a tiny fraction.
   // Courtesy of Maarten Lamers
-  float dlon = radians(long2-long1);
-  lat1 = radians(lat1);
-  lat2 = radians(lat2);
-  float a1 = sin(dlon) * cos(lat2);
-  float a2 = sin(lat1) * cos(lat2) * cos(dlon);
-  a2 = cos(lat1) * sin(lat2) - a2;
-  a2 = atan2(a1, a2);
+  float dlon = (long2-long1) * (float)DEG_TO_RAD;
+  lat1 = lat1 * (float)DEG_TO_RAD;
+  lat2 = lat2 * (float)DEG_TO_RAD;
+  float a1 = sinf(dlon) * cosf(lat2);
+  float a2 = sinf(lat1) * cosf(lat2) * cosf(dlon);
+  a2 = cosf(lat1) * sinf(lat2) - a2;
+  a2 = atan2f(a1, a2);
   if (a2 < 0.0f)
   {
     a2 += (float)TWO_PI;
   }
-  return degrees(a2);
+  return a2 * (float)RAD_TO_DEG;
 }
 
 const char *TinyGPS::cardinal (float course)

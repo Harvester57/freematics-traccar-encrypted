@@ -120,7 +120,18 @@ void CBufferManager::init()
       total = n;
       break;
     }
-    slots[n] = new CBuffer((uint8_t*)mem);
+    CBuffer* buf = new CBuffer((uint8_t*)mem);
+    if (buf) {
+      slots[n] = buf;
+    } else {
+#if BOARD_HAS_PSRAM
+      heap_caps_free(mem);
+#else
+      ::free(mem);
+#endif
+      total = n;
+      break;
+    }
   }
   assert(total > 0);
 }

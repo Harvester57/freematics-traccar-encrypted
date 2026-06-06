@@ -24,9 +24,9 @@ void CStorage::log(uint16_t pid, uint16_t values[], uint8_t count)
 void CStorage::log(uint16_t pid, uint32_t values[], uint8_t count)
 {
     char buf[256];
-    byte n = snprintf(buf, sizeof(buf), "%X%c%u", pid, m_delimiter, values[0]);
+    byte n = snprintf(buf, sizeof(buf), "%X%c%u", pid, m_delimiter, (unsigned int)values[0]);
     for (byte m = 1; m < count; m++) {
-        n += snprintf(buf + n, sizeof(buf) - n, ";%u", values[m]);
+        n += snprintf(buf + n, sizeof(buf) - n, ";%u", (unsigned int)values[m]);
     }
     dispatch(buf, n);
 }
@@ -34,9 +34,9 @@ void CStorage::log(uint16_t pid, uint32_t values[], uint8_t count)
 void CStorage::log(uint16_t pid, int32_t values[], uint8_t count)
 {
     char buf[256];
-    byte n = snprintf(buf, sizeof(buf), "%X%c%d", pid, m_delimiter, values[0]);
+    byte n = snprintf(buf, sizeof(buf), "%X%c%d", pid, m_delimiter, (int)values[0]);
     for (byte m = 1; m < count; m++) {
-        n += snprintf(buf + n, sizeof(buf) - n, ";%d", values[m]);
+        n += snprintf(buf + n, sizeof(buf) - n, ";%d", (int)values[m]);
     }
     dispatch(buf, n);
 }
@@ -49,6 +49,7 @@ void CStorage::log(uint16_t pid, float values[], uint8_t count, const char* fmt)
         if (m > 0) *(p++) = ';';
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wformat-nonliteral"
+#pragma GCC diagnostic ignored "-Wdouble-promotion"
         int l = snprintf(p, sizeof(buf) - (p - buf), fmt, (double)values[m]);
 #pragma GCC diagnostic pop
         char *q = strchr(p, '.');
@@ -181,7 +182,7 @@ uint32_t SDLogger::begin()
         m_id = 1;
     }
     char path[24];
-    sprintf(path, "/DATA/%u.CSV", m_id);
+    sprintf(path, "/DATA/%u.CSV", (unsigned int)m_id);
     Serial.print("File: ");
     Serial.println(path);
     m_file = SD.open(path, FILE_WRITE);
@@ -196,7 +197,7 @@ uint32_t SDLogger::begin()
 void SDLogger::flush()
 {
     char path[24];
-    sprintf(path, "/DATA/%u.CSV", m_id);
+    sprintf(path, "/DATA/%u.CSV", (unsigned int)m_id);
     m_file.close();
     m_file = SD.open(path, FILE_APPEND);
     if (!m_file) {
@@ -228,7 +229,7 @@ uint32_t SPIFFSLogger::begin()
     File root = SPIFFS.open("/");
     m_id = getFileID(root);
     char path[24];
-    sprintf(path, "/DATA/%u.CSV", m_id);
+    sprintf(path, "/DATA/%u.CSV", (unsigned int)m_id);
     Serial.print("File: ");
     Serial.println(path);
     m_file = SPIFFS.open(path, FILE_WRITE);
@@ -255,11 +256,11 @@ void SPIFFSLogger::purge()
     if (idx) {
         m_file.close();
         char path[32];
-        sprintf(path, "/DATA/%u.CSV", idx);
+        sprintf(path, "/DATA/%u.CSV", (unsigned int)idx);
         SPIFFS.remove(path);
         Serial.print(path);
         Serial.println(" removed");
-        sprintf(path, "/DATA/%u.CSV", m_id);
+        sprintf(path, "/DATA/%u.CSV", (unsigned int)m_id);
         m_file = SPIFFS.open(path, FILE_APPEND);
         if (!m_file) m_id = 0;
     }
