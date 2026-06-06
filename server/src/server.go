@@ -95,12 +95,17 @@ func main() {
 
 					plaintext, err := encryption.Decrypt(key, buf[:n])
 					if err != nil {
+						const maxHexPreview = 32 // 16 bytes → 32 hex chars
 						rawHex := hex.EncodeToString(buf[:n])
-						logger.Warnf(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, fmt.Sprintf(`Dropping message: decryption failed: %s. Length: %d, Raw: "%s"`, err, len(rawHex), rawHex)))
+						preview := rawHex
+						if len(preview) > maxHexPreview {
+							preview = preview[:maxHexPreview] + "..."
+						}
+						logger.Warnf(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, fmt.Sprintf("Dropping message: decryption failed: %s. Length: %d, Preview: %s", err, n, preview)))
 						return // Drop the message — never forward unauthenticated data.
 					}
 
-					logger.Infof(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, fmt.Sprintf("Successfully decrypted client packet: %s", string(plaintext))))
+					logger.Debugf(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, fmt.Sprintf("Successfully decrypted client packet (%d bytes)", len(plaintext))))
 
 					forwardAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", dest.Address, dest.Port))
 					if err != nil {
@@ -108,20 +113,6 @@ func main() {
 						return
 					}
 
-					// Create a new UDP address for listening to the backend server's response.
-					listenAddr, err := net.ResolveUDPAddr("udp", ":0") // Let the OS pick a free port.
-					if err != nil {
-						logger.Fatalln("Error resolving listen address:", err)
-						return
-					}
-
-					// Create a new UDP listener for the backend server's response.
-					listenConn, err := net.ListenUDP("udp", listenAddr)
-					if err != nil {
-						logger.Fatalln("Error listening for backend response:", err)
-						return
-					}
-					defer listenConn.Close()
 
 					// Dial the backend server without binding a local address.
 					forwardConn, err := net.DialUDP("udp", nil, forwardAddr)
@@ -166,7 +157,7 @@ func main() {
 						return
 					}
 
-					logger.Infof(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, string(plaintext)))
+					logger.Debugf(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, fmt.Sprintf("Forwarded packet (%d bytes)", len(plaintext))))
 				}(addr, buf, n)
 			}
 		}(port, dest)
