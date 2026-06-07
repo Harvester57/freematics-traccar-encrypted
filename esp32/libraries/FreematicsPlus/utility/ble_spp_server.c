@@ -274,6 +274,10 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
             if(p_data->write.is_prep == false){
                 ESP_LOGI(GATTS_TABLE_TAG, "ESP_GATTS_WRITE_EVT : handle = %d\n", res);
                 if(res == SPP_IDX_SPP_COMMAND_VAL){
+                    if (p_data->write.len > SPP_CMD_MAX_LEN) {
+                        ESP_LOGE(GATTS_TABLE_TAG, "BLE command too long (%d)\n", p_data->write.len);
+                        break;
+                    }
                     uint8_t * spp_cmd_buff = (uint8_t *)malloc(p_data->write.len + 1);
                     if(spp_cmd_buff == NULL){
                         ESP_LOGE(GATTS_TABLE_TAG, "%s malloc failed\n", __func__);
@@ -284,6 +288,7 @@ static void gatts_profile_event_handler(esp_gatts_cb_event_t event, esp_gatt_if_
                     if (xQueueSend(cmd_cmd_queue,&spp_cmd_buff,0) == errQUEUE_FULL) {
                         char *temp;
                         xQueueReceive(cmd_cmd_queue, &temp, 0);
+                        if (temp) free(temp);
                         xQueueSend(cmd_cmd_queue,&spp_cmd_buff,0);
                     }
                 }else if(res == SPP_IDX_SPP_DATA_NTF_CFG){

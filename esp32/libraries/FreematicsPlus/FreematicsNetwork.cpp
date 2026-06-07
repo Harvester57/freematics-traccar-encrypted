@@ -306,9 +306,9 @@ bool CellSIMCOM::setup(const char* apn, const char* username, const char* passwo
       sendCommand("AT+CGNAPN\r");
       if (apn && *apn) {
         if (username && password) {
-          sprintf(m_buffer, "AT+CNCFG=0,0,\"%s\",\"%s\",\"%s\",3\r", apn, username, password);
+          snprintf(m_buffer, RECV_BUF_SIZE, "AT+CNCFG=0,0,\"%s\",\"%s\",\"%s\",3\r", apn, username, password);
         } else {
-          sprintf(m_buffer, "AT+CNCFG=0,0,\"%s\"\r", apn);
+          snprintf(m_buffer, RECV_BUF_SIZE, "AT+CNCFG=0,0,\"%s\"\r", apn);
         }
         sendCommand(m_buffer);
       }
@@ -359,15 +359,15 @@ bool CellSIMCOM::setup(const char* apn, const char* username, const char* passwo
 
       if (m_type == CELL_SIM7670) {
         if (apn && *apn) {
-          sprintf(m_buffer, "AT+CGDCONT=1,\"IP\",\"%s\"\r", apn);
+          snprintf(m_buffer, RECV_BUF_SIZE, "AT+CGDCONT=1,\"IP\",\"%s\"\r", apn);
           sendCommand(m_buffer);
         }
       } else {
         if (apn && *apn) {
-          sprintf(m_buffer, "AT+CGSOCKCONT=1,\"IP\",\"%s\"\r", apn);
+          snprintf(m_buffer, RECV_BUF_SIZE, "AT+CGSOCKCONT=1,\"IP\",\"%s\"\r", apn);
           sendCommand(m_buffer);
           if (username && password) {
-            sprintf(m_buffer, "AT+CSOCKAUTH=1,1,\"%s\",\"%s\"\r", username, password);
+            snprintf(m_buffer, RECV_BUF_SIZE, "AT+CSOCKAUTH=1,1,\"%s\",\"%s\"\r", username, password);
             sendCommand(m_buffer);
           }
         }
@@ -528,7 +528,7 @@ bool CellSIMCOM::checkSIM(const char* pin)
 String CellSIMCOM::queryIP(const char* host)
 {
   if (m_type == CELL_SIM7070) {
-    sprintf(m_buffer, "AT+CDNSGIP=\"%s\",1,3000\r", host);
+    snprintf(m_buffer, RECV_BUF_SIZE, "AT+CDNSGIP=\"%s\",1,3000\r", host);
     if (sendCommand(m_buffer, 10000, "+CDNSGIP:")) {
       char *p = strstr(m_buffer, host);
       if (p) {
@@ -542,7 +542,7 @@ String CellSIMCOM::queryIP(const char* host)
       }
     }
   } else {
-    sprintf(m_buffer, "AT+CDNSGIP=\"%s\"\r", host);
+    snprintf(m_buffer, RECV_BUF_SIZE, "AT+CDNSGIP=\"%s\"\r", host);
     if (sendCommand(m_buffer, 10000)) {
       char *p = strstr(m_buffer, host);
       if (p) {
@@ -872,7 +872,7 @@ bool CellHTTP::send(HTTP_METHOD method, const char* host, uint16_t port, const c
       }
     }
   } else if (m_type == CELL_SIM7670) {
-    sprintf(m_buffer, "AT+HTTPPARA=\"URL\",\"https://%s:%u%s\"\r", host, port, path);
+    snprintf(m_buffer, RECV_BUF_SIZE, "AT+HTTPPARA=\"URL\",\"https://%s:%u%s\"\r", host, port, path);
     if (sendCommand(m_buffer, 1000)) {
       if (payload) {
         sprintf(m_buffer, "AT+HTTPDATA=%u,1000\r", payloadSize);
@@ -921,7 +921,11 @@ char* CellHTTP::receive(int* pbytes, unsigned int timeout)
       if (pbytes) *pbytes = bytes;
       p = strchr(p, '\n');
       if (p++) {
-        *(p + bytes) = 0;
+        if (bytes >= 0 && p + bytes < m_buffer + RECV_BUF_SIZE) {
+          *(p + bytes) = 0;
+        } else {
+          m_buffer[RECV_BUF_SIZE - 1] = 0;
+        }
         return p;
       }
     }
@@ -940,7 +944,11 @@ char* CellHTTP::receive(int* pbytes, unsigned int timeout)
       p = strchr(p, '\n');
       if (p) {
         p++;
-        if (bytes < RECV_BUF_SIZE - 32) *(p + bytes) = 0;
+        if (bytes >= 0 && p + bytes < m_buffer + RECV_BUF_SIZE) {
+          *(p + bytes) = 0;
+        } else {
+          m_buffer[RECV_BUF_SIZE - 1] = 0;
+        }
         return p;
       }
     }
