@@ -27,7 +27,11 @@ func main() {
 	configFile := flag.String("config", "", "Path to the configuration file")
 	flag.Parse()
 
-	logging.InitLogger(logrus.InfoLevel)
+	logLevel := logrus.InfoLevel
+	if os.Getenv("LOG_LEVEL") == "debug" || os.Getenv("DEBUG") == "true" || os.Getenv("DEBUG") == "1" {
+		logLevel = logrus.DebugLevel
+	}
+	logging.InitLogger(logLevel)
 	logger := logging.GetLogger()
 
 	if *configFile == "" {
@@ -105,7 +109,7 @@ func main() {
 						return // Drop the message — never forward unauthenticated data.
 					}
 
-					logger.Debugf(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, fmt.Sprintf("Successfully decrypted client packet (%d bytes)", len(plaintext))))
+					logger.Infof(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, fmt.Sprintf("Successfully decrypted client packet (%d bytes)", len(plaintext))))
 
 					forwardAddr, err := net.ResolveUDPAddr("udp", fmt.Sprintf("%s:%d", dest.Address, dest.Port))
 					if err != nil {
@@ -157,7 +161,7 @@ func main() {
 						return
 					}
 
-					logger.Debugf(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, fmt.Sprintf("Forwarded packet (%d bytes)", len(plaintext))))
+					logger.Infof(formatLogMsg(addr.IP.String(), dest.Address, dest.Port, fmt.Sprintf("Successfully forwarded encrypted response back to client (%d bytes)", len(encryptedBackendResponse))))
 				}(addr, buf, n)
 			}
 		}(port, dest)
