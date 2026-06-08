@@ -205,6 +205,66 @@ When deploying in Docker, the proxy's [entrypoint.sh](server/entrypoint.sh) scri
 
 ---
 
+## Security Findings Fixed
+
+This repository has undergone extensive security reviews and static analysis audits. Below is a summary of the security vulnerabilities and weaknesses identified and mitigated in the codebase:
+
+### 1. Go Decryption Proxy (server/)
+
+*   **Sensitive Data Exposure in Logs (High)**
+    *   *Issue:* Decrypted client telemetry payload containing real-time GPS coordinates, vehicle speeds, and OBD diagnostics was logged at `INFO` level.
+    *   *Fix:* Moved plaintext payload logging to `DEBUG` level in [server.go](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/server/src/server.go), ensuring production logs only contain safe transmission metadata.
+*   **Command Injection in Environment Override (High)**
+    *   *Issue:* Environment variables like `CHACHA_KEY` were interpolated directly into `sed` replacement patterns without sanitization.
+    *   *Fix:* Added `sanitize_sed` function in [entrypoint.sh](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/server/entrypoint.sh) to escape delimiter and metacharacters before processing.
+*   **File Descriptor & Ephemeral Port Leak (High)**
+    *   *Issue:* A redundant UDP socket listener was created for each incoming packet and never used, risking resource exhaustion.
+    *   *Fix:* Removed the unused `net.ListenUDP` socket creation in [server.go](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/server/src/server.go).
+*   **Flooding/Sensitive Data Exposure in Failure Logs (Medium)**
+    *   *Issue:* Full hex dumps of failed-decryption payloads were logged on decryption failure, risking log flooding attacks and exposure.
+    *   *Fix:* Truncated raw failure logs in [server.go](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/server/src/server.go) to a maximum of 32 characters.
+
+### 2. Telelogger Firmware (esp32/telelogger/)
+
+*   **Decryption Stack Buffer Overflow (High)**
+    *   *Issue:* `decrypt_string` lacked an output buffer size parameter, writing decrypted payloads unchecked into a stack buffer.
+    *   *Fix:* Refactored `decrypt_string` in [telecrypt.cpp](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/esp32/telelogger/telecrypt.cpp) and [teleclient.cpp](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/esp32/telelogger/teleclient.cpp) to enforce output bounds via a new `max_output_length` parameter.
+*   **Encryption Stack Buffer Overflow (High)**
+    *   *Issue:* Hardcoded ciphertext buffer bounds checks could overflow if input data sizes were modified.
+    *   *Fix:* Patched `encrypt_string` in [telecrypt.cpp](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/esp32/telelogger/telecrypt.cpp) to explicitly validate that output bounds are not exceeded before writing ciphertext.
+*   **Robust Memory Allocations (Medium)**
+    *   *Issue:* Unchecked `malloc` allocations in buffer manager could lead to null pointer dereferences if memory was exhausted.
+    *   *Fix:* Added validation in [teleclient.cpp](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/esp32/telelogger/teleclient.cpp) to verify `CBuffer` initialization and clean up allocations on failure.
+
+### 3. FreematicsPlus Library (esp32/libraries/FreematicsPlus/)
+
+*   **Modem AT Command Buffer Overflows (High/Medium)**
+    *   *Issue:* APN, host, and URL configurations were formatted into a heap buffer via unbounded `sprintf` calls.
+    *   *Fix:* Replaced hazardous formatting calls with `snprintf` using `RECV_BUF_SIZE` boundaries in [FreematicsNetwork.cpp](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/esp32/libraries/FreematicsPlus/FreematicsNetwork.cpp).
+*   **Modem HTTP/UDP Receive Bounds Violations (High/Medium)**
+    *   *Issue:* Null terminators were written at modem-controlled offsets without validating bounds.
+    *   *Fix:* Implemented range-checking constraints in [FreematicsNetwork.cpp](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/esp32/libraries/FreematicsPlus/FreematicsNetwork.cpp) to restrict writes to valid buffer offsets.
+*   **BLE SPP Unbounded Heap Allocation (Medium)**
+    *   *Issue:* Client GATT writes dynamically allocated memory via `malloc` without upper size bounds.
+    *   *Fix:* Enforced a maximum command length (`SPP_CMD_MAX_LEN`) validation check in [ble_spp_server.c](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/esp32/libraries/FreematicsPlus/utility/ble_spp_server.c) and freed overwritten command queues to prevent leaks.
+
+### 4. TinyGPS Library (esp32/libraries/TinyGPS/)
+
+*   **Invalid Checksum Hex Parsing Bypass (Medium)**
+    *   *Issue:* Non-hexadecimal characters were parsed as zero instead of failing, leading to potential checksum bypasses.
+    *   *Fix:* Refactored `hex2uint8` in [TinyGPS.cpp](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/esp32/libraries/TinyGPS/TinyGPS.cpp) to track parsing validity and fail checksum matches on invalid characters.
+*   **NMEA Term Index Wrapping Aliasing (Medium)**
+    *   *Issue:* Terms index masking allowed wraps when terms exceeded 32, causing aliasing with earlier fields.
+    *   *Fix:* Guarded term dispatches in [TinyGPS.cpp](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/esp32/libraries/TinyGPS/TinyGPS.cpp) to discard terms past 31.
+*   **Long-String Integer Overflow (Medium)**
+    *   *Issue:* Long digits string conversion could result in signed integer overflows.
+    *   *Fix:* Limited digit processing to 9 digits in [TinyGPS.cpp](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/esp32/libraries/TinyGPS/TinyGPS.cpp).
+*   **Cardinal Directions Out-of-Bounds Read (Medium)**
+    *   *Issue:* Negative direction indices from negative modulo calculations caused out-of-bounds array reads.
+    *   *Fix:* Normalized direction modulo ranges to [0, 15] in [TinyGPS.cpp](file:///c:/Users/Florian/OneDrive/Documents/Dev/freematics-traccar-encrypted/esp32/libraries/TinyGPS/TinyGPS.cpp).
+
+---
+
 ## Credits & License
 
 *   Original Project: [freematics-traccar-encrypted](https://github.com/soshial/freematics-traccar-encrypted)
