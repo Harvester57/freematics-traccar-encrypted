@@ -2,12 +2,14 @@ package logging
 
 import (
 	"github.com/sirupsen/logrus"
+	"os"
 )
 
 var log *logrus.Logger
 
 func init() {
 	log = logrus.New()
+	log.SetOutput(os.Stdout)
 
 	// Set log output format
 	customFormatter := new(logrus.TextFormatter)
