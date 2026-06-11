@@ -1,7 +1,7 @@
 # ==============================================================================
 # STAGE 1: Build the Go binary
 # ==============================================================================
-FROM golang:1.26-alpine@sha256:f23e8b227fb4493eabe03bede4d5a32d04092da71962f1fb79b5f7d1e6c2a17f AS builder
+FROM golang:1.26-alpine@sha256:a6a091eac01ceac4b97496fe2957a49b6cdd83365337d5f46f6f73710424e805 AS builder
 
 # Install build dependencies, git, and certificates
 RUN apk update && apk add --no-cache git ca-certificates tzdata
