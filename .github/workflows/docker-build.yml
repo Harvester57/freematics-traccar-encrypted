@@ -125,7 +125,7 @@ jobs:
 
       - name: Generate SBOM and upload dependency results
         if: ${{ github.event_name != 'pull_request' }}
-        uses: anchore/sbom-action@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+        uses: anchore/sbom-action@aa80c8c5bd439a416a62804f2151ab38c671a638 # v0.24.1
         with:
           image: ${{ env.IMAGE }}
           artifact-name: "${{ github.event.repository.name }}.cyclonedx-sbom.json"
@@ -136,7 +136,7 @@ jobs:
 
       - name: Scan SBOM
         if: ${{ github.event_name != 'pull_request' }}
-        uses: anchore/scan-action@e1165082ffb1fe366ebaf02d8526e7c4989ea9d2 # v7.4.0
+        uses: anchore/scan-action@8964e60c6fabdb85fdbbbfd9834d8f19c97a3086 # v7.4.1
         id: scan
         with:
           fail-build: false
@@ -148,6 +148,6 @@ jobs:
 
       - name: Upload Anchore scan SARIF report
         if: ${{ github.event_name != 'pull_request' }}
-        uses: github/codeql-action/upload-sarif@ff2f1c621b7f889edc0d3c761ac2e6a3f8cdb0dd # v3.29.5
+        uses: github/codeql-action/upload-sarif@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v3.29.5
         with:
           sarif_file: ${{ steps.scan.outputs.sarif }}
