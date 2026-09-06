@@ -38,7 +38,7 @@ jobs:
       security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
     steps:
       - name: Harden the runner (audit mode)
-        uses: step-security/harden-runner@05e31511f85b41b11d1cf0ef85d0992719546e2c # v2.21.0
+        uses: step-security/harden-runner@e14015d583714f6e62063499dc959a02595150a1 # v2.21.1
         with:
           egress-policy: audit
 
@@ -125,7 +125,7 @@ jobs:
 
       - name: Generate SBOM and upload dependency results
         if: ${{ github.event_name != 'pull_request' }}
-        uses: anchore/sbom-action@aa80c8c5bd439a416a62804f2151ab38c671a638 # v0.24.1
+        uses: anchore/sbom-action@3ad7283483fc7af8ff2b4ea19663c2d5ca935e26 # v0.24.2
         with:
           image: ${{ env.IMAGE }}
           artifact-name: "${{ github.event.repository.name }}.cyclonedx-sbom.json"
@@ -136,7 +136,7 @@ jobs:
 
       - name: Scan SBOM
         if: ${{ github.event_name != 'pull_request' }}
-        uses: anchore/scan-action@8964e60c6fabdb85fdbbbfd9834d8f19c97a3086 # v7.4.1
+        uses: anchore/scan-action@27805bf3b4e84b4a5c980df22ed233c00390a439 # v7.4.2
         id: scan
         with:
           fail-build: false
