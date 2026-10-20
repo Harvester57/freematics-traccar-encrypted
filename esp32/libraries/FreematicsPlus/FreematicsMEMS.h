@@ -247,6 +247,7 @@ public:
   virtual ~MEMS_I2C() { uninitI2C(); };
   virtual byte begin(bool fusion = false) = 0;
   virtual void end() { uninitI2C(); }
+  virtual void setLowPower(bool enable) {}
   virtual bool read(float* acc, float* gyr = 0, float* mag = 0, float* temp = 0, ORIENTATION* ori = 0) = 0;
 protected:
   bool initI2C(unsigned long clock);
@@ -257,18 +258,19 @@ class MPU9250 : public MEMS_I2C
 {
 public:
   byte begin(bool fusion = false);
+  void setLowPower(bool enable);
   bool read(float* acc, float* gyr = 0, float* mag = 0, float* temp = 0, ORIENTATION* ori = 0);
 private:
   void writeByte(uint8_t, uint8_t);
   uint8_t readByte(uint8_t);
   bool readBytes(uint8_t, uint8_t, uint8_t *);
-  void readAccelData(int16_t *);
+  bool readAccelData(int16_t *);
   int16_t readTempData();
   void init();
   void getAres();
   void getMres();
   void getGres();
-  void readGyroData(int16_t *);
+  bool readGyroData(int16_t *);
   void readMagData(int16_t *);
   bool initAK8963(float *);
   void calibrateMPU9250(float * gyroBiasOut, float * accelBiasOut);
@@ -289,14 +291,15 @@ class ICM_42627 : public MEMS_I2C
 {
 public:
   byte begin(bool fusion = false);
+  void setLowPower(bool enable);
   bool read(float* acc, float* gyr = 0, float* mag = 0, float* temp = 0, ORIENTATION* ori = 0);
 private:
   void writeByte(uint8_t, uint8_t);
   uint8_t readByte(uint8_t);
   bool readBytes(uint8_t, uint8_t, uint8_t *);
   void init();
-  void readAccelData(int16_t data[]);
-  void readGyroData(int16_t data[]);
+  bool readAccelData(int16_t data[]);
+  bool readGyroData(int16_t data[]);
   int16_t readTempData();
 };
 
@@ -412,6 +415,7 @@ public:
     virtual ICM_20948_Status_e  writeMag( uint8_t reg, uint8_t* pdata, uint8_t len );
 
     byte begin(bool fusion = false);
+    void setLowPower(bool enable);
     bool read(float* acc, float* gyr = 0, float* mag = 0, float* tmp = 0, ORIENTATION* ori = 0);
 
     ICM_20948_Status_e  startupMagnetometer( void );

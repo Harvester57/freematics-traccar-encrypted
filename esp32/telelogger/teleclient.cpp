@@ -271,10 +271,25 @@ bool TeleClientUDP::notify(byte event, const char* payload)
     char *orig_send_buf = netbuf.buffer();
     unsigned int orig_send_buf_len = netbuf.length();
     unsigned char encrypted_buf[256];
-    if (!encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf, sizeof(encrypted_buf))) break;
-    if (!wifi.send((const char *)encrypted_buf, orig_send_buf_len + 28)) break;
+    Serial.print("[NET] Sending encrypted UDP packet (len: ");
+    Serial.print(orig_send_buf_len);
+    Serial.print("): ");
+    Serial.println(orig_send_buf);
+    if (!encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf, sizeof(encrypted_buf))) {
+      Serial.println("[NET] Encryption failed!");
+      break;
+    }
+    if (!wifi.send((const char *)encrypted_buf, orig_send_buf_len + 28)) {
+      Serial.println("[NET] WiFi send failed!");
+      break;
+    }
     #else
-    if (!wifi.send(netbuf.buffer(), netbuf.length())) break;
+    Serial.print("[NET] Sending raw UDP packet: ");
+    Serial.println(netbuf.buffer());
+    if (!wifi.send(netbuf.buffer(), netbuf.length())) {
+      Serial.println("[NET] WiFi send failed!");
+      break;
+    }
     #endif
     }
     else
@@ -284,10 +299,25 @@ bool TeleClientUDP::notify(byte event, const char* payload)
     char *orig_send_buf = netbuf.buffer();
     unsigned int orig_send_buf_len = netbuf.length();
     unsigned char encrypted_buf[256];
-    if (!encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf, sizeof(encrypted_buf))) break;
-    if (!cell.send((const char *)encrypted_buf, orig_send_buf_len + 28)) break;
+    Serial.print("[NET] Sending encrypted UDP packet (len: ");
+    Serial.print(orig_send_buf_len);
+    Serial.print("): ");
+    Serial.println(orig_send_buf);
+    if (!encrypt_string((unsigned char *)orig_send_buf, orig_send_buf_len, encrypted_buf, sizeof(encrypted_buf))) {
+      Serial.println("[NET] Encryption failed!");
+      break;
+    }
+    if (!cell.send((const char *)encrypted_buf, orig_send_buf_len + 28)) {
+      Serial.println("[NET] Cell send failed!");
+      break;
+    }
     #else
-    if (!cell.send(netbuf.buffer(), netbuf.length())) break;
+    Serial.print("[NET] Sending raw UDP packet: ");
+    Serial.println(netbuf.buffer());
+    if (!cell.send(netbuf.buffer(), netbuf.length())) {
+      Serial.println("[NET] Cell send failed!");
+      break;
+    }
     #endif
     }
     if (event == EVENT_ACK) return true; // no reply for ACK
@@ -322,11 +352,17 @@ bool TeleClientUDP::notify(byte event, const char* payload)
       continue;
     }
     char decrypted_data[RECV_BUF_SIZE];
+    Serial.print("[NET] Received encrypted UDP packet (len: ");
+    Serial.print(bytesRecv);
+    Serial.println(")");
     if (!decrypt_string((unsigned char *)data, bytesRecv, (unsigned char *)decrypted_data, sizeof(decrypted_data))) {
+      Serial.println("[NET] Decryption failed!");
       continue;
     }
     data = decrypted_data;
     bytesRecv = strlen(decrypted_data);
+    Serial.print("[NET] Decrypted plaintext packet: ");
+    Serial.println(data);
 #endif
     // verify checksum
     if (!verifyChecksum(data)) {
@@ -568,11 +604,8 @@ void TeleClientUDP::shutdown()
     Serial.println("[NET] Logout");
   }
 #if ENABLE_WIFI
-  if (wifi.connected()) {
-    wifi.end();
-    Serial.println("[WIFI] Deactivated");
-    return;
-  }
+  wifi.end();
+  Serial.println("[WIFI] Deactivated");
 #endif
   cell.end();
   Serial.println("[CELL] Deactivated");
@@ -743,11 +776,8 @@ void TeleClientHTTP::shutdown()
     Serial.println("[NET] Logout");
   }
 #if ENABLE_WIFI
-  if (wifi.connected()) {
-    wifi.end();
-    Serial.println("[WIFI] Deactivated");
-    return;
-  }
+  wifi.end();
+  Serial.println("[WIFI] Deactivated");
 #endif
   cell.close();
   cell.end();

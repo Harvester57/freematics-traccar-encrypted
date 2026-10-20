@@ -273,8 +273,8 @@ void COBD::enterLowPowerMode()
 {
   	char buf[32];
 	if (link) {
-		reset();
-		delay(1000);	
+		uninit();
+		delay(100);
 		link->sendCommand("ATLP\r", buf, sizeof(buf), 1000);
 	}
 }
@@ -305,10 +305,15 @@ char* COBD::getResultValue(char* buf)
 float COBD::getVoltage()
 {
     char buf[32];
-	if (link && link->sendCommand("ATRV\r", buf, sizeof(buf), 500) > 0) {
-		char* p = getResultValue(buf);
-		if (p) return (float)atof(p);
-    }
+	if (link) {
+		for (byte n = 0; n < 3; n++) {
+			if (link->sendCommand("ATRV\r", buf, sizeof(buf), 500) > 0) {
+				char* p = getResultValue(buf);
+				if (p) return (float)atof(p);
+			}
+			delay(50);
+		}
+	}
     return 0;
 }
 

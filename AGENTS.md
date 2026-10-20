@@ -1,4 +1,4 @@
-# Developer & Agent Onboarding Guide (AGENT.md)
+# Developer & Agent Onboarding Guide (AGENTS.md)
 
 Welcome to the **freematics-traccar-encrypted** repository! This document serves as a comprehensive technical guide for developers and AI agents working on this codebase. It explains the system architecture, component structures, data flow, cryptographic details, and how to configure, build, and test the project.
 
@@ -96,6 +96,13 @@ The custom packet layout is uniform for both client-to-server and server-to-clie
     ```powershell
     ~\.platformio\penv\Scripts\platformio.exe run --environment esp32dev
     ```
+5.  When modifying conditional blocks in `esp32/telelogger` or `esp32/libraries/FreematicsPlus`, verify compilation across feature flag combinations using `PLATFORMIO_BUILD_FLAGS`:
+    ```powershell
+    # Example: test HTTPS, WiFi, no-MEMS, or no-OBD builds
+    $env:PLATFORMIO_BUILD_FLAGS="-DSERVER_PROTOCOL=2"; ~\.platformio\penv\Scripts\platformio.exe run --environment esp32dev
+    $env:PLATFORMIO_BUILD_FLAGS="-DENABLE_MEMS=0"; ~\.platformio\penv\Scripts\platformio.exe run --environment esp32dev
+    Remove-Item Env:\PLATFORMIO_BUILD_FLAGS -ErrorAction SilentlyContinue
+    ```
     Or upload directly to your ESP32 tracker via PlatformIO.
 
 ### Configuring and Running the Go Server
@@ -130,3 +137,12 @@ The custom packet layout is uniform for both client-to-server and server-to-clie
 *   **Standard Internet MTU:** Packets are capped at **1500 bytes** (the standard internet MTU) on both client and server buffers to avoid fragmentation issues in UDP. Ensure telemetry payloads do not exceed this limit when encrypted.
 *   **Dependencies:**
     *   The Go side relies on `golang.org/x/crypto/chacha20poly1305` and `gopkg.in/yaml.v2`. Keep these dependencies up-to-date with security patches.
+
+### ESP32 Power Management & Freematics ONE+ Hardware Invariants
+*   **Alternator vs. Resting Voltage (`JUMPSTART_VOLTAGE = 13.4f`, `LOW_BATTERY_VOLTAGE = 12.0f`):** A resting 12V car battery sits at 12.4V-12.8V (`< 13.4f` V); charging alternator voltage is `>= 13.4f` V. Never trigger standby wakeup or run active CAN bus protocol scans (`obd.init(PROTO_AUTO, true)`) when `batteryVoltage < JUMPSTART_VOLTAGE`.
+*   **Wakeup & Standby Ping Policy:** Standby cellular heartbeat pings are disabled (`PING_BACK_INTERVAL = 0`). Wakeup from MEMS motion in `standby()` must be confirmed by alternator voltage (`>= JUMPSTART_VOLTAGE` within 10s), otherwise the tracker recalibrates MEMS and remains in standby.
+*   **Low-Battery Deep Sleep Cutoff (`12.0f` V):** When battery voltage is confirmed below `LOW_BATTERY_VOLTAGE` (`12.0f` V) across consecutive readings (`confirmLowBattery()`), the tracker shuts down all peripherals and enters a 300-second ESP32 Deep Sleep loop (`esp_deep_sleep_start()`), checking voltage silently on `ESP_SLEEP_WAKEUP_TIMER` before initializing OLED, buzzer, MEMS, or networking.
+*   **OBD Co-Processor & CAN Bus Sleep (`ATPC\r` before `ATLP\r`):** Always call `obd.uninit()` (`ATPC\r`) when leaving active state or before `obd.enterLowPowerMode()` (`ATLP\r`) so vehicle ECUs can enter CAN bus sleep. Never call `obd.reset()` (`ATR\r`) right before `ATLP\r`.
+*   **SIMCOM Cellular `PWRKEY` Toggle Hazard (`xbTogglePower`):** `PIN_BEE_PWR` (GPIO 15) is a stateless `PWRKEY` toggle pulse. Never call `xbTogglePower()` in `xbBegin()`, `CellSIMCOM::begin()`, or `CellSIMCOM::end()` without first checking whether the modem responds to `AT\r` (`check(500)`), or an already-off modem will be inadvertently powered back on.
+*   **GPS Co-Processor Shutdown (`gpsEnd`):** Sending `"ATGPSOFF\r"` via `gpsSendCommand()` requires a non-zero timeout (`500` ms) so `link->sendCommand()` waits for `"OK"` instead of returning immediately.
+*   **MEMS I2C Read Validation:** Always check `i2c_master_cmd_begin() == ESP_OK` and zero-initialize stack buffers in `FreematicsMEMS` (`MPU9250`, `ICM_42627`, `ICM_20948`) so failed I2C transactions cannot feed uninitialized stack garbage into `waitMotion()`.

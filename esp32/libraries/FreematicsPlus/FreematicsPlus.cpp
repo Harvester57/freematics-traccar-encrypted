@@ -481,9 +481,9 @@ int CLink_SPI::sendCommand(const char* cmd, char* buf, int bufsize, unsigned int
 void FreematicsESP32::gpsEnd(bool powerOff)
 {
     if (m_flags & FLAG_GNSS_USE_LINK) {
-        if (powerOff) {
+        if (powerOff && link) {
             char buf[16];
-            link->sendCommand("ATGPSOFF\r", buf, sizeof(buf), 0);
+            link->sendCommand("ATGPSOFF\r", buf, sizeof(buf), 500);
         }
     } else {
         taskGPS.destroy();
@@ -738,7 +738,6 @@ bool FreematicsESP32::xbBegin(unsigned long baudrate, int pinRx, int pinTx)
 #ifdef PIN_BEE_PWR
 	pinMode(PIN_BEE_PWR, OUTPUT);
 	digitalWrite(PIN_BEE_PWR, LOW);
-    xbTogglePower();
 #endif
     return true;
 }

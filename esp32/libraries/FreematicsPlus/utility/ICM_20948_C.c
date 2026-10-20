@@ -517,7 +517,7 @@ ICM_20948_Status_e  ICM_20948_get_agmt          ( ICM_20948_Device_t* pdev, ICM_
 
 	ICM_20948_Status_e retval = ICM_20948_Stat_Ok;
 	const uint8_t numbytes = 14;
-	uint8_t buff[numbytes];
+	uint8_t buff[14] = {0};
 
 	// Get readings
 	retval |= ICM_20948_set_bank( pdev, 0 ); 

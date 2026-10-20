@@ -37,6 +37,17 @@
 
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
+#include "esp_sleep.h"
+
+#ifndef ENGINE_OFF_TIMEOUT
+#define ENGINE_OFF_TIMEOUT 60
+#endif
+#ifndef STANDBY_GRACE_PERIOD
+#define STANDBY_GRACE_PERIOD 15000
+#endif
+#ifndef LOW_BATTERY_VOLTAGE
+#define LOW_BATTERY_VOLTAGE 12.0f
+#endif
 
 // states
 #define STATE_STORAGE_READY 0x1
@@ -49,6 +60,7 @@
 #define STATE_WIFI_CONNECTED 0x80
 #define STATE_WORKING 0x100
 #define STATE_STANDBY 0x200
+#define STATE_NET_SHUTDOWN 0x400
 
 typedef struct {
   byte pid;
@@ -106,6 +118,7 @@ char isoTime[32] = {0};
 
 // stats data
 uint32_t lastMotionTime = 0;
+uint32_t lastEngineRunningTime = 0;
 uint32_t timeoutsOBD = 0;
 uint32_t timeoutsNet = 0;
 uint32_t lastStatsTime = 0;
@@ -186,6 +199,19 @@ void beep(int duration)
     delay(duration);
     // turn off buzzer
     sys.buzzer(0);
+}
+
+float readBatteryVoltage()
+{
+#if ENABLE_OBD
+  if (sys.devType > 12) {
+    return (float)(analogRead(A0) * 45) / 4095;
+  } else {
+    return obd.getVoltage();
+  }
+#else
+  return (float)(analogRead(A0) * 45) / 4095;
+#endif
 }
 
 #if LOG_EXT_SENSORS
@@ -270,6 +296,7 @@ void processOBD(CBuffer* buffer)
         obdData[i].value = value;
         buffer->add((uint16_t)pid | 0x100, ELEMENT_INT32, &value, sizeof(value));
     } else {
+        if (pid == PID_RPM) obdData[i].value = 0;
         timeoutsOBD++;
         printTimeoutStats();
         break;
@@ -277,7 +304,16 @@ void processOBD(CBuffer* buffer)
     if (tier > 1) break;
   }
   int kph = obdData[0].value;
+  int rpm = obdData[1].value;
   if (kph >= 2) lastMotionTime = millis();
+  if (rpm > 0 || kph >= 2 || (batteryVoltage > 0 && batteryVoltage >= 13.2f)) {
+    lastEngineRunningTime = millis();
+  } else if (lastEngineRunningTime > 0 && millis() - lastEngineRunningTime >= ENGINE_OFF_TIMEOUT * 1000UL) {
+    Serial.println("[OBD] Engine off timeout");
+    obd.uninit();
+    state.clear(STATE_OBD_READY | STATE_WORKING);
+    lastEngineRunningTime = 0;
+  }
 }
 #endif
 
@@ -300,11 +336,13 @@ bool processGPS(CBuffer* buffer)
   static uint32_t lastGPStime = 0;
   static float lastGPSLat = 0;
   static float lastGPSLng = 0;
+  static uint8_t gpsMotionCount = 0;
 
   if (!gd) {
     lastGPStime = 0;
     lastGPSLat = 0;
     lastGPSLng = 0;
+    gpsMotionCount = 0;
   }
 #if GNSS == GNSS_STANDALONE
   if (state.check(STATE_GPS_READY)) {
@@ -341,13 +379,20 @@ bool processGPS(CBuffer* buffer)
     // invalid coordinates data
     lastGPSLat = 0;
     lastGPSLng = 0;
+    gpsMotionCount = 0;
     return false;
   }
   lastGPSLat = gd->lat;
   lastGPSLng = gd->lng;
 
   float kph = gd->speed * 1.852f;
-  if (kph >= 2) lastMotionTime = millis();
+  if (gd->sat >= 5 && gd->hdop > 0 && gd->hdop <= 20 && kph >= 5.0f) {
+    if (++gpsMotionCount >= 2) {
+      lastMotionTime = millis();
+    }
+  } else {
+    gpsMotionCount = 0;
+  }
 
   if (buffer) {
     buffer->add(PID_GPS_TIME, ELEMENT_UINT32, &gd->time, sizeof(uint32_t));
@@ -457,19 +502,25 @@ void calibrateMEMS()
     accBias[0] = 0;
     accBias[1] = 0;
     accBias[2] = 0;
-    int n;
+    int n = 0;
     unsigned long t = millis();
-    for (n = 0; millis() - t < 1000; n++) {
+    while (millis() - t < 1000) {
       float localAcc[3];
-      if (!mems->read(localAcc)) continue;
+      if (!mems->read(localAcc)) {
+        delay(10);
+        continue;
+      }
       accBias[0] += localAcc[0];
       accBias[1] += localAcc[1];
       accBias[2] += localAcc[2];
+      n++;
       delay(10);
     }
-    accBias[0] /= n;
-    accBias[1] /= n;
-    accBias[2] /= n;
+    if (n > 0) {
+      accBias[0] /= n;
+      accBias[1] /= n;
+      accBias[2] /= n;
+    }
     Serial.print("ACC BIAS:");
     Serial.print(accBias[0]);
     Serial.print('/');
@@ -495,6 +546,22 @@ void printTime()
   }
 }
 
+#if ENABLE_OBD
+static uint8_t obdRetryCount = 0;
+#endif
+
+bool confirmLowBattery(float v)
+{
+  if (v <= 6.0f || v >= LOW_BATTERY_VOLTAGE) return false;
+  for (byte i = 0; i < 4; i++) {
+    delay(500);
+    v = readBatteryVoltage();
+    batteryVoltage = v;
+    if (v <= 6.0f || v >= LOW_BATTERY_VOLTAGE) return false;
+  }
+  return true;
+}
+
 /*******************************************************************************
   Initializing all data logging components
 *******************************************************************************/
@@ -503,8 +570,50 @@ void initialize()
   // dump buffer data
   bufman.purge();
 
+  batteryVoltage = readBatteryVoltage();
+  if (confirmLowBattery(batteryVoltage)) {
+    Serial.print("Low battery: ");
+    Serial.println(batteryVoltage);
+    state.clear(STATE_WORKING);
+    return;
+  }
+
+#if ENABLE_OBD
+  obdRetryCount = 0;
+  // initialize OBD communication before powering on GPS/storage
+  if (!state.check(STATE_OBD_READY)) {
+    timeoutsOBD = 0;
+    if (obd.init()) {
+      Serial.println("OBD:OK");
+      state.set(STATE_OBD_READY);
+#if ENABLE_OLED
+      oled.println("OBD OK");
+#endif
+    } else {
+      Serial.println("OBD:NO");
+      batteryVoltage = readBatteryVoltage();
+      if (batteryVoltage < JUMPSTART_VOLTAGE) {
+        obd.uninit();
+        state.clear(STATE_WORKING);
+        return;
+      }
+    }
+  }
+  batteryVoltage = readBatteryVoltage();
+  if (state.check(STATE_OBD_READY) && batteryVoltage > 0 && batteryVoltage < JUMPSTART_VOLTAGE) {
+    int rpm = 0;
+    if (!obd.readPID(PID_RPM, rpm) || rpm <= 0) {
+      Serial.println("OBD:Engine OFF");
+      obd.uninit();
+      state.clear(STATE_OBD_READY | STATE_WORKING);
+      return;
+    }
+  }
+#endif
+
 #if ENABLE_MEMS
   if (state.check(STATE_MEMS_READY)) {
+    mems->setLowPower(false);
     calibrateMEMS();
   }
 #endif
@@ -517,26 +626,8 @@ void initialize()
   }
 #endif
 
-#if ENABLE_OBD
-  // initialize OBD communication
-  if (!state.check(STATE_OBD_READY)) {
-    timeoutsOBD = 0;
-    if (obd.init()) {
-      Serial.println("OBD:OK");
-      state.set(STATE_OBD_READY);
-#if ENABLE_OLED
-      oled.println("OBD OK");
-#endif
-    } else {
-      Serial.println("OBD:NO");
-      //state.clear(STATE_WORKING);
-      //return;
-    }
-  }
-#endif
-
 #if SERVER_ENCRYPTION_ENABLE == 1
-      Serial.println("CHACHA:YES");
+  Serial.println("CHACHA:YES");
 #endif
 
 #if STORAGE != STORAGE_NONE
@@ -551,7 +642,7 @@ void initialize()
   }
 #endif
 
-  // re-try OBD if connection not established
+  // check VIN and DTC when OBD is ready
 #if ENABLE_OBD
   if (state.check(STATE_OBD_READY)) {
     char buf[128];
@@ -576,6 +667,7 @@ void initialize()
   printTime();
 
   lastMotionTime = millis();
+  lastEngineRunningTime = millis();
   state.set(STATE_WORKING);
 
 #if ENABLE_OLED
@@ -624,11 +716,16 @@ bool waitMotion(long timeout)
 #if ENABLE_MEMS
   unsigned long t = millis();
   if (state.check(STATE_MEMS_READY)) {
+    uint8_t consecutiveHits = 0;
     do {
       // calculate relative movement
       float motion = 0;
       float localAcc[3];
-      if (!mems->read(localAcc)) continue;
+      if (!mems->read(localAcc)) {
+        consecutiveHits = 0;
+        delay(50);
+        continue;
+      }
       if (accCount == 10) {
         accCount = 0;
         accSum[0] = 0;
@@ -643,16 +740,31 @@ bool waitMotion(long timeout)
         float m = (localAcc[i] - accBias[i]);
         motion += m * m;
       }
-#if ENABLE_HTTPD
-      serverProcess(100);
-#endif
-      processBLE(100);
-      // check movement
+      // check movement (require 3 consecutive samples above threshold)
       if (motion >= MOTION_THRESHOLD * MOTION_THRESHOLD) {
-        //lastMotionTime = millis();
-        Serial.println(motion);
-        return true;
+        if (++consecutiveHits >= 3) {
+          Serial.println(motion);
+          return true;
+        }
+        delay(50);
+        continue;
+      } else {
+        consecutiveHits = 0;
       }
+#if ENABLE_HTTPD
+      serverProcess(50);
+#endif
+#if ENABLE_BLE
+      processBLE(50);
+#endif
+#if !ENABLE_HTTPD && !ENABLE_BLE
+      if (state.check(STATE_STANDBY) && state.check(STATE_NET_SHUTDOWN)) {
+        esp_sleep_enable_timer_wakeup(250000);
+        esp_light_sleep_start();
+      } else {
+        delay(250);
+      }
+#endif
     } while (state.check(STATE_STANDBY) && ((long)(millis() - t) < timeout || timeout == -1));
     return false;
   }
@@ -672,20 +784,63 @@ void process()
   CBuffer* buffer = bufman.getFree();
   buffer->state = BUFFER_STATE_FILLING;
 
+  batteryVoltage = readBatteryVoltage();
+  static uint8_t lowBattCount = 0;
+  if (batteryVoltage > 6.0f && batteryVoltage < LOW_BATTERY_VOLTAGE) {
+    if (++lowBattCount >= 10) {
+      Serial.print("[BATT] Low voltage cutoff: ");
+      Serial.println(batteryVoltage);
+#if ENABLE_OBD
+      obd.uninit();
+#endif
+      state.clear(STATE_OBD_READY | STATE_WORKING);
+      buffer->state = BUFFER_STATE_EMPTY;
+      return;
+    }
+  } else if (batteryVoltage >= LOW_BATTERY_VOLTAGE) {
+    lowBattCount = 0;
+  }
+
 #if ENABLE_OBD
   // process OBD data if connected
   if (state.check(STATE_OBD_READY)) {
+    obdRetryCount = 0;
     processOBD(buffer);
+    if (!state.check(STATE_WORKING)) {
+      buffer->state = BUFFER_STATE_EMPTY;
+      return;
+    }
     if (obd.errors >= MAX_OBD_ERRORS) {
-      if (!obd.init()) {
+      batteryVoltage = readBatteryVoltage();
+      if ((batteryVoltage > 0 && batteryVoltage < JUMPSTART_VOLTAGE) || !obd.init()) {
         Serial.println("[OBD] ECU OFF");
-        state.clear(STATE_OBD_READY | STATE_WORKING);
-        return;
+        obd.uninit();
+        state.clear(STATE_OBD_READY);
+        if (batteryVoltage < JUMPSTART_VOLTAGE) {
+          state.clear(STATE_WORKING);
+          buffer->state = BUFFER_STATE_EMPTY;
+          return;
+        }
+        obdRetryCount = MAX_OBD_ERRORS;
       }
     }
-  } else if (obd.init(PROTO_AUTO, true)) {
-    state.set(STATE_OBD_READY);
-    Serial.println("[OBD] ECU ON");
+  } else if (batteryVoltage >= JUMPSTART_VOLTAGE) {
+    if (obdRetryCount < MAX_OBD_ERRORS) {
+      if (obd.init(PROTO_AUTO, true)) {
+        state.set(STATE_OBD_READY);
+        obdRetryCount = 0;
+        lastEngineRunningTime = millis();
+        Serial.println("[OBD] ECU ON");
+      } else if (++obdRetryCount >= MAX_OBD_ERRORS) {
+        Serial.println("[OBD] Init failed");
+        obd.uninit();
+      }
+    }
+  } else {
+    obdRetryCount = 0;
+    state.clear(STATE_WORKING);
+    buffer->state = BUFFER_STATE_EMPTY;
+    return;
   }
 #endif
 
@@ -693,17 +848,10 @@ void process()
     int val = (rssiLast = rssi);
     buffer->add(PID_CSQ, ELEMENT_INT32, &val, sizeof(val));
   }
-#if ENABLE_OBD
-  if (sys.devType > 12) {
-    batteryVoltage = (float)(analogRead(A0) * 45) / 4095;
-  } else {
-    batteryVoltage = obd.getVoltage();
-  }
   if (batteryVoltage) {
     uint16_t v = batteryVoltage * 100;
     buffer->add(PID_BATTERY_VOLTAGE, ELEMENT_UINT16, &v, sizeof(v));
   }
-#endif
 
 #if LOG_EXT_SENSORS
   processExtInputs(buffer);
@@ -883,43 +1031,58 @@ void telemetry(void* inst)
 
   for (;;) {
     if (state.check(STATE_STANDBY)) {
-      if (state.check(STATE_CELL_CONNECTED) || state.check(STATE_WIFI_CONNECTED)) {
-        teleClient.shutdown();
-        netop = "";
-        ip = "";
-        rssi = 0;
-      }
+      teleClient.shutdown();
+      netop = "";
+      ip = "";
+      rssi = 0;
       state.clear(STATE_NET_READY | STATE_CELL_CONNECTED | STATE_WIFI_CONNECTED);
+      state.set(STATE_NET_SHUTDOWN);
       teleClient.reset();
       bufman.purge();
 
+#if PING_BACK_INTERVAL > 0
       uint32_t t = millis();
       do {
-        delay(1000);
-      } while (state.check(STATE_STANDBY) && millis() - t < 1000L * PING_BACK_INTERVAL);
+        delay(100);
+      } while (state.check(STATE_STANDBY) && millis() - t < 1000UL * PING_BACK_INTERVAL);
       if (state.check(STATE_STANDBY)) {
-        // start ping
+        if (batteryVoltage == 0 || batteryVoltage >= LOW_BATTERY_VOLTAGE) {
+          state.clear(STATE_NET_SHUTDOWN);
+          // start ping
 #if ENABLE_WIFI
-        if (wifiSSID[0]) { 
-          Serial.print("[WIFI] Joining SSID:");
-          Serial.println(wifiSSID);
-          teleClient.wifi.begin(wifiSSID, wifiPassword);
-        }
-        if (teleClient.wifi.setup()) {
-          Serial.println("[WIFI] Ping...");
-          teleClient.ping();
-        }
-        else
-#endif
-        {
-          if (initCell()) {
-            Serial.println("[CELL] Ping...");
+          if (wifiSSID[0]) { 
+            Serial.print("[WIFI] Joining SSID:");
+            Serial.println(wifiSSID);
+            teleClient.wifi.begin(wifiSSID, wifiPassword);
+          }
+          if (teleClient.wifi.setup()) {
+            Serial.println("[WIFI] Ping...");
             teleClient.ping();
           }
+          else
+#endif
+          {
+            if (initCell()) {
+              Serial.println("[CELL] Ping...");
+              teleClient.ping();
+            }
+          }
+          teleClient.shutdown();
+          state.clear(STATE_CELL_CONNECTED | STATE_WIFI_CONNECTED);
+          state.set(STATE_NET_SHUTDOWN);
         }
-        teleClient.shutdown();
-        state.clear(STATE_CELL_CONNECTED | STATE_WIFI_CONNECTED);
       }
+#else
+      while (state.check(STATE_STANDBY)) {
+        delay(100);
+      }
+#endif
+      state.clear(STATE_NET_SHUTDOWN);
+      continue;
+    }
+
+    if (!state.check(STATE_WORKING)) {
+      delay(100);
       continue;
     }
 
@@ -965,7 +1128,9 @@ void telemetry(void* inst)
           state.clear(STATE_NET_READY | STATE_CELL_CONNECTED);
           Serial.println("[CELL] Deactivated");
           // avoid turning on/off cellular module too frequently to avoid operator banning
-          delay(60000 * 3);
+          for (int i = 0; i < 180 && state.check(STATE_WORKING); i++) {
+            delay(1000);
+          }
           break;
         }
         Serial.println("[CELL] In service");
@@ -1056,6 +1221,7 @@ void telemetry(void* inst)
 
       if (state.check(STATE_CELL_CONNECTED) && !teleClient.cell.check(1000)) {
         Serial.println("[CELL] Not in service");
+        teleClient.cell.end();
         state.clear(STATE_NET_READY | STATE_CELL_CONNECTED);
         break;
       }
@@ -1099,6 +1265,7 @@ void telemetry(void* inst)
 *******************************************************************************/
 void standby()
 {
+  state.clear(STATE_NET_SHUTDOWN);
   state.set(STATE_STANDBY);
 #if STORAGE != STORAGE_NONE
   if (state.check(STATE_STORAGE_READY)) {
@@ -1116,6 +1283,11 @@ void standby()
 #endif
 
   state.clear(STATE_WORKING | STATE_OBD_READY | STATE_STORAGE_READY);
+#if ENABLE_MEMS
+  if (state.check(STATE_MEMS_READY)) {
+    mems->setLowPower(true);
+  }
+#endif
   // this will put co-processor into sleep mode
 #if ENABLE_OLED
   oled.print("STANDBY");
@@ -1123,17 +1295,121 @@ void standby()
   oled.clear();
 #endif
   Serial.println("STANDBY");
-  obd.enterLowPowerMode();
-#if ENABLE_MEMS
-  calibrateMEMS();
-  waitMotion(-1);
-#elif ENABLE_OBD
-  do {
-    delay(5000);
-  } while (obd.getVoltage() < JUMPSTART_VOLTAGE);
-#else
-  delay(5000);
+
+  // Wait for telemetry task to finish shutting down cellular/WiFi hardware
+  for (int i = 0; i < 100 && !state.check(STATE_NET_SHUTDOWN); i++) {
+    delay(100);
+  }
+
+  float v = (batteryVoltage = readBatteryVoltage());
+  if (confirmLowBattery(v)) {
+    obd.enterLowPowerMode();
+    Serial.print("DEEP SLEEP (Low Battery: ");
+    Serial.print(batteryVoltage);
+    Serial.println("V)");
+    Serial.flush();
+#ifdef PIN_LED
+    digitalWrite(PIN_LED, LOW);
 #endif
+    esp_sleep_enable_timer_wakeup(300ULL * 1000000ULL);
+    esp_deep_sleep_start();
+  }
+  obd.enterLowPowerMode();
+
+#if ENABLE_MEMS
+  if (state.check(STATE_MEMS_READY)) {
+    // Allow vehicle suspension and cabin settlement before calibrating MEMS
+    unsigned long graceStart = millis();
+    while (millis() - graceStart < STANDBY_GRACE_PERIOD) {
+#if !ENABLE_HTTPD && !ENABLE_BLE
+      if (state.check(STATE_NET_SHUTDOWN)) {
+        esp_sleep_enable_timer_wakeup(250000);
+        esp_light_sleep_start();
+      } else {
+        delay(250);
+      }
+#else
+      delay(250);
+#endif
+    }
+    calibrateMEMS();
+    for (;;) {
+      if (waitMotion(10000)) {
+        // Confirm wakeup with alternator voltage over a 10-second window
+        bool confirmed = false;
+        unsigned long confirmStart = millis();
+        while (millis() - confirmStart < 10000) {
+          v = (batteryVoltage = readBatteryVoltage());
+          if (v >= JUMPSTART_VOLTAGE) {
+            confirmed = true;
+            break;
+          }
+          delay(500);
+        }
+        if (confirmed) {
+          break;
+        }
+        Serial.println("False motion wakeup rejected (voltage below jumpstart)");
+#if ENABLE_OBD
+        if (sys.devType <= 12) obd.enterLowPowerMode();
+#endif
+        continue;
+      }
+      if (!state.check(STATE_STANDBY)) {
+        break;
+      }
+      v = (batteryVoltage = readBatteryVoltage());
+      if (confirmLowBattery(v)) {
+        obd.enterLowPowerMode();
+        Serial.println("DEEP SLEEP (Low Battery)");
+        Serial.flush();
+#ifdef PIN_LED
+        digitalWrite(PIN_LED, LOW);
+#endif
+        esp_sleep_enable_timer_wakeup(300ULL * 1000000ULL);
+        esp_deep_sleep_start();
+      }
+      v = batteryVoltage;
+      if (v >= JUMPSTART_VOLTAGE) {
+        break;
+      }
+#if ENABLE_OBD
+      if (sys.devType <= 12) obd.enterLowPowerMode();
+#endif
+    }
+  } else
+#endif
+  {
+    do {
+#if !ENABLE_HTTPD && !ENABLE_BLE
+      if (state.check(STATE_NET_SHUTDOWN)) {
+        esp_sleep_enable_timer_wakeup(5000000);
+        esp_light_sleep_start();
+      } else {
+        delay(5000);
+      }
+#else
+      delay(5000);
+#endif
+      v = (batteryVoltage = readBatteryVoltage());
+      if (confirmLowBattery(v)) {
+        obd.enterLowPowerMode();
+        Serial.println("DEEP SLEEP (Low Battery)");
+        Serial.flush();
+#ifdef PIN_LED
+        digitalWrite(PIN_LED, LOW);
+#endif
+        esp_sleep_enable_timer_wakeup(300ULL * 1000000ULL);
+        esp_deep_sleep_start();
+      }
+      v = batteryVoltage;
+#if ENABLE_OBD
+      if (v < JUMPSTART_VOLTAGE && sys.devType <= 12) {
+        obd.enterLowPowerMode();
+      }
+#endif
+    } while (state.check(STATE_STANDBY) && v < JUMPSTART_VOLTAGE);
+  }
   Serial.println("WAKEUP");
   sys.resetLink();
 #if RESET_AFTER_WAKEUP
@@ -1382,8 +1658,10 @@ void processBLE(int timeout)
 
 void setup()
 {
+#if ENABLE_WIFI
   // Disable brownout detector to prevent reboot when WiFi transmitter spikes power draw
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
+#endif
 
   delay(500);
 
@@ -1411,7 +1689,11 @@ void setup()
   // init LED pin
 #ifdef PIN_LED
   pinMode(PIN_LED, OUTPUT);
-  if (ledMode == 0) digitalWrite(PIN_LED, HIGH);
+  if (ledMode == 0 && esp_sleep_get_wakeup_cause() != ESP_SLEEP_WAKEUP_TIMER) {
+    digitalWrite(PIN_LED, HIGH);
+  } else {
+    digitalWrite(PIN_LED, LOW);
+  }
 #endif
 
   // generate unique device ID
@@ -1447,6 +1729,20 @@ void setup()
 #else
   sys.begin(false, true);
 #endif
+  teleClient.cell.setDevice(&sys);
+
+  if (esp_sleep_get_wakeup_cause() == ESP_SLEEP_WAKEUP_TIMER) {
+    float v = readBatteryVoltage();
+    if (v < JUMPSTART_VOLTAGE) {
+      obd.enterLowPowerMode();
+      Serial.flush();
+#ifdef PIN_LED
+      digitalWrite(PIN_LED, LOW);
+#endif
+      esp_sleep_enable_timer_wakeup(300ULL * 1000000ULL);
+      esp_deep_sleep_start();
+    }
+  }
 
 #if ENABLE_MEMS
 if (!state.check(STATE_MEMS_READY)) do {

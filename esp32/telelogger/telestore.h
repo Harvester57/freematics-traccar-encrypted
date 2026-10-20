@@ -83,6 +83,11 @@ public:
     bool init();
     uint32_t begin();
     void flush();
+    void end()
+    {
+        FileLogger::end();
+        SD.end();
+    }
 };
 
 class SPIFFSLogger : public FileLogger {

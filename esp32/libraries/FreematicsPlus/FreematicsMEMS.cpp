@@ -166,30 +166,32 @@ void MEMS_I2C::uninitI2C()
 //====== Set of useful function to access acceleration. gyroscope, magnetometer,
 //====== and temperature data
 //==============================================================================
-void MPU9250::readAccelData(int16_t * destination)
+bool MPU9250::readAccelData(int16_t * destination)
 {
-  uint8_t rawData[6];   // x/y/z accel register data stored here
-  readBytes(ACCEL_XOUT_H, 6, &rawData[0]);  // Read the six raw data registers into data array
+  uint8_t rawData[6] = {0};   // x/y/z accel register data stored here
+  if (!readBytes(ACCEL_XOUT_H, 6, &rawData[0])) return false;  // Read the six raw data registers into data array
   destination[0] = ((int16_t)rawData[0] << 8) | rawData[1] ;  // Turn the MSB and LSB into a signed 16-bit value
   destination[1] = ((int16_t)rawData[2] << 8) | rawData[3] ;
   destination[2] = ((int16_t)rawData[4] << 8) | rawData[5] ;
+  return true;
 }
 
 
-void MPU9250::readGyroData(int16_t * destination)
+bool MPU9250::readGyroData(int16_t * destination)
 {
-  uint8_t rawData[6];  // x/y/z gyro register data stored here
-  readBytes(GYRO_XOUT_H, 6, &rawData[0]);  // Read the six raw data registers sequentially into data array
+  uint8_t rawData[6] = {0};  // x/y/z gyro register data stored here
+  if (!readBytes(GYRO_XOUT_H, 6, &rawData[0])) return false;  // Read the six raw data registers sequentially into data array
   destination[0] = ((int16_t)rawData[0] << 8) | rawData[1] ;  // Turn the MSB and LSB into a signed 16-bit value
   destination[1] = ((int16_t)rawData[2] << 8) | rawData[3] ;
   destination[2] = ((int16_t)rawData[4] << 8) | rawData[5] ;
+  return true;
 }
 
 void MPU9250::readMagData(int16_t * destination)
 {
   if(readByteAK(AK8963_ST1) & 0x01) { // wait for magnetometer data ready bit to be set
-    uint8_t rawData[7];  // x/y/z gyro register data, ST2 register stored here, must read ST2 at end of data acquisition
-    readBytesAK(AK8963_XOUT_L, 7, rawData);  // Read the six raw data and ST2 registers sequentially into data array
+    uint8_t rawData[7] = {0};  // x/y/z gyro register data, ST2 register stored here, must read ST2 at end of data acquisition
+    if (!readBytesAK(AK8963_XOUT_L, 7, rawData)) return;  // Read the six raw data and ST2 registers sequentially into data array
     uint8_t c = rawData[6]; // End data read by reading ST2 register
     if(!(c & 0x08)) { // Check if magnetic sensor overflow set, if not then report data
       destination[0] = ((int16_t)rawData[1] << 8) | rawData[0] ;  // Turn the MSB and LSB into a signed 16-bit value
@@ -201,8 +203,8 @@ void MPU9250::readMagData(int16_t * destination)
 
 int16_t MPU9250::readTempData()
 {
-  uint8_t rawData[2];  // x/y/z gyro register data stored here
-  readBytes(TEMP_OUT_H, 2, &rawData[0]);  // Read the two raw data registers sequentially into data array
+  uint8_t rawData[2] = {0};  // x/y/z gyro register data stored here
+  if (!readBytes(TEMP_OUT_H, 2, &rawData[0])) return 0;  // Read the two raw data registers sequentially into data array
   return ((int16_t)rawData[0] << 8) | rawData[1];  // Turn the MSB and LSB into a 16-bit value
 }
 
@@ -679,16 +681,27 @@ byte MPU9250::begin(bool fusion)
   return ret;
 }
 
+void MPU9250::setLowPower(bool enable)
+{
+  if (enable) {
+    writeByteAK(AK8963_CNTL, 0x00); // Power down magnetometer
+    writeByte(PWR_MGMT_2, 0x07);    // Disable gyroscope axes, keep accelerometer enabled
+  } else {
+    writeByte(PWR_MGMT_2, 0x00);    // Enable all accelerometer and gyroscope axes
+    writeByteAK(AK8963_CNTL, MFS_16BITS << 4 | Mmode);
+  }
+}
+
 bool MPU9250::read(float* acc, float* gyr, float* mag, float* temp, ORIENTATION* ori)
 {
   if (acc) {
-    readAccelData(accelCount);
+    if (!readAccelData(accelCount)) return false;
     acc[0] = (float)accelCount[0]*aRes; // - accelBias[0];  // get actual g value, this depends on scale being set
     acc[1] = (float)accelCount[1]*aRes; // - accelBias[1];
     acc[2] = (float)accelCount[2]*aRes; // - accelBias[2];
   }
   if (gyr) {
-    readGyroData(gyroCount);
+    if (!readGyroData(gyroCount)) return false;
     gyr[0] = (float)gyroCount[0]*gRes;  // get actual gyro value, this depends on scale being set
     gyr[1] = (float)gyroCount[1]*gRes;
     gyr[2] = (float)gyroCount[2]*gRes;
@@ -741,6 +754,16 @@ void ICM_42627::init()
 
   writeByte(SELF_TEST_CONFIG_REG, 0x07);
   delay(100);
+}
+
+void ICM_42627::setLowPower(bool enable)
+{
+  if (enable) {
+    writeByte(PWR_MGMT0_REG, TEMP_DIS_OFF | IDLE_ON | ACCEL_MODE_LP | GYRO_MODE_OFF);
+  } else {
+    writeByte(PWR_MGMT0_REG, TEMP_DIS_ON | IDLE_ON | ACCEL_MODE_LN | GYRO_MODE_LN);
+  }
+  delay(50);
 }
 
 void ICM_42627::writeByte(uint8_t subAddress, uint8_t data)
@@ -803,43 +826,45 @@ bool ICM_42627::readBytes(uint8_t subAddress, uint8_t count, uint8_t * dest)
   return ret == ESP_OK;
 }
 
-void ICM_42627::readAccelData(int16_t data[])
+bool ICM_42627::readAccelData(int16_t data[])
 {
-  uint8_t rawData[6];  // x/y/z accel register data stored here
-  readBytes(ACCEL_XOUT_H_REG, 6, &rawData[0]);  // Read the six raw data registers into data array
+  uint8_t rawData[6] = {0};  // x/y/z accel register data stored here
+  if (!readBytes(ACCEL_XOUT_H_REG, 6, &rawData[0])) return false;  // Read the six raw data registers into data array
   data[0] = ((int16_t)rawData[0] << 8) | rawData[1] ;  // Turn the MSB and LSB into a signed 16-bit value
   data[1] = ((int16_t)rawData[2] << 8) | rawData[3] ;
   data[2] = ((int16_t)rawData[4] << 8) | rawData[5] ;
+  return true;
 }
 
 int16_t ICM_42627::readTempData()
 {
-  uint8_t rawData[2];  // x/y/z gyro register data stored here
-  readBytes(TEMP_OUT_H_REG, 2, &rawData[0]);  // Read the two raw data registers sequentially into data array
+  uint8_t rawData[2] = {0};  // x/y/z gyro register data stored here
+  if (!readBytes(TEMP_OUT_H_REG, 2, &rawData[0])) return 0;  // Read the two raw data registers sequentially into data array
   return ((int16_t)rawData[0] << 8) | rawData[1] ;  // Turn the MSB and LSB into a 16-bit value
 }
 
-void ICM_42627::readGyroData(int16_t data[])
+bool ICM_42627::readGyroData(int16_t data[])
 {
-  uint8_t rawData[6];  // x/y/z gyro register data stored here
-  readBytes(GYRO_XOUT_H_REG, 6, &rawData[0]);  // Read the six raw data registers sequentially into data array
+  uint8_t rawData[6] = {0};  // x/y/z gyro register data stored here
+  if (!readBytes(GYRO_XOUT_H_REG, 6, &rawData[0])) return false;  // Read the six raw data registers sequentially into data array
   data[0] = ((int16_t)rawData[0] << 8) | rawData[1] ;  // Turn the MSB and LSB into a signed 16-bit value
   data[1] = ((int16_t)rawData[2] << 8) | rawData[3] ;
   data[2] = ((int16_t)rawData[4] << 8) | rawData[5] ;
+  return true;
 }
 
 bool ICM_42627::read(float* acc, float* gyr, float* mag, float* temp, ORIENTATION* ori)
 {
   if (acc) {
     int16_t accelCount[3] = {0};
-    readAccelData(accelCount);
+    if (!readAccelData(accelCount)) return false;
     acc[0] = (float)accelCount[0]*aRes; // - accelBias[0];  // get actual g value, this depends on scale being set
     acc[1] = (float)accelCount[1]*aRes; // - accelBias[1];
     acc[2] = (float)accelCount[2]*aRes; // - accelBias[2];
   }
   if (gyr) {
     int16_t gyroCount[3] = {0};
-    readGyroData(gyroCount);
+    if (!readGyroData(gyroCount)) return false;
     gyr[0] = (float)gyroCount[0]*gRes;  // get actual gyro value, this depends on scale being set
     gyr[1] = (float)gyroCount[1]*gRes;
     gyr[2] = (float)gyroCount[2]*gRes;
@@ -1438,7 +1463,7 @@ ICM_20948_Status_e  ICM_20948_I2C::startupMagnetometer    ( void ){
     i2cMasterPassthrough( true ); // Set passthrough mode to try to access the magnetometer (by default I2C master is disabled but you still have to enable the passthrough)
 
     // Try to set up magnetometer
-    AK09916_CNTL2_Reg_t reg;
+    AK09916_CNTL2_Reg_t reg = {0};
     reg.MODE = AK09916_mode_cont_100hz;
 
     ICM_20948_Status_e retval = writeMag( AK09916_REG_CNTL2, (uint8_t*)&reg, sizeof(AK09916_CNTL2_Reg_t) );
@@ -1454,7 +1479,7 @@ ICM_20948_Status_e ICM_20948_I2C::magWhoIAm( void ){
     ICM_20948_Status_e retval = ICM_20948_Stat_Ok;
 
     const uint8_t len = 2;
-    uint8_t whoiam[len];
+    uint8_t whoiam[len] = {0};
     retval = readMag( AK09916_REG_WIA1, whoiam, len );
     status = retval;
     if( retval != ICM_20948_Stat_Ok ){ return retval; }
@@ -1479,7 +1504,7 @@ bool                ICM_20948_I2C::magIsConnected( void ){
 ICM_20948_Status_e  ICM_20948_I2C::getMagnetometerData     ( ICM_20948_AGMT_t* pagmt ){
 
     const uint8_t reqd_len = 9; // you must read all the way through the status2 register to re-enable the next measurement
-    uint8_t buff[reqd_len];
+    uint8_t buff[reqd_len] = {0};
         
     status = readMag( AK09916_REG_ST1, buff, reqd_len );
     if( status != ICM_20948_Stat_Ok ){
@@ -1529,12 +1554,39 @@ ICM_20948_Status_e ICM_20948_I2C::writeMag( uint8_t reg, uint8_t* pdata, uint8_t
     return ret == ESP_OK ? ICM_20948_Stat_Ok : ICM_20948_Stat_Err;
 }
 
+void ICM_20948_I2C::setLowPower(bool enable)
+{
+  ICM_20948_PWR_MGMT_2_t pwr2 = {0};
+  if (enable) {
+    if (_has_magnetometer) {
+      i2cMasterPassthrough(true);
+      AK09916_CNTL2_Reg_t reg = {0};
+      reg.MODE = AK09916_mode_power_down;
+      writeMag(AK09916_REG_CNTL2, (uint8_t*)&reg, sizeof(AK09916_CNTL2_Reg_t));
+    }
+    pwr2.DISABLE_GYRO = 0x07;
+    pwr2.DIABLE_ACCEL = 0x00;
+    setBank(0);
+    write(AGB0_REG_PWR_MGMT_2, (uint8_t*)&pwr2, sizeof(pwr2));
+    lowPower(true);
+  } else {
+    lowPower(false);
+    pwr2.DISABLE_GYRO = 0x00;
+    pwr2.DIABLE_ACCEL = 0x00;
+    setBank(0);
+    write(AGB0_REG_PWR_MGMT_2, (uint8_t*)&pwr2, sizeof(pwr2));
+    if (_has_magnetometer) {
+      startupMagnetometer();
+    }
+  }
+}
+
 bool ICM_20948_I2C::read(float* acc, float* gyr, float* mag, float* tmp, ORIENTATION* ori)
 {
   if(!dataReady() || ICM_20948_get_agmt( &_device, &agmt ) != ICM_20948_Stat_Ok){
     return false;
   }
-  if( _has_magnetometer ){
+  if( mag && _has_magnetometer ){
     getMagnetometerData( &agmt );
   }
   if (acc) {

@@ -215,10 +215,13 @@ bool CellSIMCOM::begin(CFreematics* device)
 {
   getBuffer();
   m_device = device;
-  for (byte n = 0; n < 30; n++) {
-    device->xbTogglePower(200);
+  for (byte n = 0; n < 10; n++) {
     device->xbPurge();
-    if (!check(2000)) continue;
+    if (!check(500)) {
+      device->xbTogglePower(200);
+      device->xbPurge();
+      if (!check(3000)) continue;
+    }
     if (sendCommand("ATE0\r") && sendCommand("ATI\r")) {
       // retrieve module info
       //Serial.print(m_buffer);
@@ -261,17 +264,25 @@ bool CellSIMCOM::begin(CFreematics* device)
 
 void CellSIMCOM::end()
 {
+  if (!m_device) return;
+  getBuffer();
   setGPS(false);
+  if (!check(500)) {
+    return;
+  }
+  bool poweredDown = false;
   if (m_type == CELL_SIM7070) {
-    if (!sendCommand("AT+CPOWD=1\r", 1000, "NORMAL POWER DOWN")) {
-      if (m_device) m_device->xbTogglePower(2510);
-    } else {
-      delay(1500);
-    }
+    poweredDown = sendCommand("AT+CPOWD=1\r", 1000, "NORMAL POWER DOWN");
   } else {
-    if (!sendCommand("AT+CPOF\r")) {
-      if (m_device) m_device->xbTogglePower(2510);
-    } else {
+    poweredDown = sendCommand("AT+CPOF\r") || sendCommand("AT+CPOWD=1\r", 1000, "NORMAL POWER DOWN");
+  }
+  if (poweredDown) {
+    delay(1500);
+  } else {
+    m_device->xbTogglePower(2510);
+    delay(1500);
+    if (check(500)) {
+      sendCommand("AT+CPOWD=1\r", 1000, "NORMAL POWER DOWN");
       delay(1500);
     }
   }
@@ -283,19 +294,43 @@ bool CellSIMCOM::setup(const char* apn, const char* username, const char* passwo
   bool success = false;
 
   if (m_type == CELL_SIM7070) {
+    if (apn && *apn) {
+      snprintf(m_buffer, RECV_BUF_SIZE, "AT+CGDCONT=1,\"IP\",\"%s\"\r", apn);
+      sendCommand(m_buffer);
+      if (username && password) {
+        snprintf(m_buffer, RECV_BUF_SIZE, "AT+CGAUTH=1,3,\"%s\",\"%s\"\r", username, password);
+        sendCommand(m_buffer);
+      }
+    }
     do {
       do {
         success = false;
         sendCommand("AT+CFUN=1\r");
+        sendCommand("AT+COPS=0\r");
         do {
           delay(500);
-          if (sendCommand("AT+CGREG?\r",1000, "+CGREG: 0,")) {
-            char *p = strstr(m_buffer, "+CGREG: 0,");
+          bool reg = false;
+          if (sendCommand("AT+CGREG?\r", 1000, "+CGREG: ")) {
+            char *p = strstr(m_buffer, "+CGREG: ");
             if (p) {
-              char ret = *(p + 10);
-              success = ret == '1' || ret == '5';
+              p = strchr(p, ',');
+              if (p) {
+                char ret = *(p + 1);
+                reg = ret == '1' || ret == '5';
+              }
             }
           }
+          if (!reg && sendCommand("AT+CEREG?\r", 1000, "+CEREG: ")) {
+            char *p = strstr(m_buffer, "+CEREG: ");
+            if (p) {
+              p = strchr(p, ',');
+              if (p) {
+                char ret = *(p + 1);
+                reg = ret == '1' || ret == '5';
+              }
+            }
+          }
+          success = reg;
         } while (!success && millis() - t < timeout);
         if (!success) break;
         success = sendCommand("AT+CGACT?\r", 1000, "+CGACT: 1,");
@@ -306,15 +341,17 @@ bool CellSIMCOM::setup(const char* apn, const char* username, const char* passwo
       sendCommand("AT+CGNAPN\r");
       if (apn && *apn) {
         if (username && password) {
-          snprintf(m_buffer, RECV_BUF_SIZE, "AT+CNCFG=0,0,\"%s\",\"%s\",\"%s\",3\r", apn, username, password);
+          snprintf(m_buffer, RECV_BUF_SIZE, "AT+CNCFG=1,0,\"%s\",\"%s\",\"%s\",3\r", apn, username, password);
         } else {
-          snprintf(m_buffer, RECV_BUF_SIZE, "AT+CNCFG=0,0,\"%s\"\r", apn);
+          snprintf(m_buffer, RECV_BUF_SIZE, "AT+CNCFG=1,0,\"%s\"\r", apn);
         }
         sendCommand(m_buffer);
       }
-      sendCommand("AT+CNACT=0,1\r");
+      sendCommand("AT+CNACT=1,1\r");
       sendCommand("AT+CNSMOD?\r");
       sendCommand("AT+CSCLK=0\r");
+      sendCommand("AT+CMEE=1\r");
+      sendCommand("AT+CURCCFG=\"TCPIP\",1\r");
     } while(0);
   } else {
     do {
@@ -436,7 +473,7 @@ bool CellSIMCOM::getLocation(GPS_DATA** pgd)
 String CellSIMCOM::getIP()
 {
   if (m_type == CELL_SIM7070) {
-    sendCommand("AT+CNACT=0,1\r");
+    sendCommand("AT+CNACT=1,1\r");
     for (int i = 0; i < 30; i++) {
       delay(500);
       if (sendCommand("AT+CNACT?\r", 1000)) {
@@ -528,8 +565,25 @@ bool CellSIMCOM::checkSIM(const char* pin)
 String CellSIMCOM::queryIP(const char* host)
 {
   if (m_type == CELL_SIM7070) {
-    snprintf(m_buffer, RECV_BUF_SIZE, "AT+CDNSGIP=\"%s\",1,3000\r", host);
-    if (sendCommand(m_buffer, 10000, "+CDNSGIP:")) {
+    sendCommand("AT+CDNSCFG?\r");
+    Serial.print("[UDP] CDNSCFG response: ");
+    Serial.println(m_buffer);
+    sendCommand("AT+CGCONTRDP\r");
+    Serial.print("[UDP] CGCONTRDP response: ");
+    Serial.println(m_buffer);
+    sendCommand("AT+CURCCFG?\r");
+    Serial.print("[UDP] CURCCFG response: ");
+    Serial.println(m_buffer);
+    Serial.println("[UDP] Overriding DNS to 1.1.1.1 / 1.0.0.1...");
+    sendCommand("AT+CDNSCFG=\"1.1.1.1\",\"1.0.0.1\"\r");
+    Serial.print("[UDP] CDNSCFG override response: ");
+    Serial.println(m_buffer);
+    snprintf(m_buffer, RECV_BUF_SIZE, "AT+CDNSGIP=\"%s\",1,15000\r", host);
+    Serial.print("[UDP] Querying DNS: ");
+    Serial.println(m_buffer);
+    if (sendCommand(m_buffer, 18000, "+CDNSGIP:")) {
+      Serial.print("[UDP] DNS response: ");
+      Serial.println(m_buffer);
       char *p = strstr(m_buffer, host);
       if (p) {
         p = strstr(p, "\",\"");
@@ -540,6 +594,9 @@ String CellSIMCOM::queryIP(const char* host)
           return ip;
         }
       }
+    } else {
+      Serial.print("[UDP] DNS query failed, response: ");
+      Serial.println(m_buffer);
     }
   } else {
     snprintf(m_buffer, RECV_BUF_SIZE, "AT+CDNSGIP=\"%s\"\r", host);
@@ -561,6 +618,7 @@ String CellSIMCOM::queryIP(const char* host)
 
 bool CellSIMCOM::sendCommand(const char* cmd, unsigned int timeout, const char* expected)
 {
+  if (!m_device || !getBuffer()) return false;
   if (cmd) {
     m_device->xbWrite(cmd);
     delay(10);
@@ -669,22 +727,91 @@ char* CellSIMCOM::getBuffer()
 
 bool CellUDP::open(const char* host, uint16_t port)
 {
+  Serial.print("[UDP] CellUDP::open(");
+  Serial.print(host ? host : "NULL");
+  Serial.print(", ");
+  Serial.print(port);
+  Serial.println(")");
   if (host) {
-    udpIP = queryIP(host);
+    Serial.print("[UDP] Host hex bytes: ");
+    for (int i = 0; host[i] && i < 15; i++) {
+      Serial.printf("%02X ", host[i]);
+    }
+    Serial.println();
+  }
+  if (m_type == CELL_SIM7070) {
+    Serial.println("[UDP] Activating CNACT...");
+    sendCommand("AT+CNACT=1,1\r");
+    Serial.print("[UDP] CNACT response: ");
+    Serial.println(m_buffer);
+
+#if VERBOSE_XBEE
+    // Diagnostics: Set SNPDPID context and query capabilities
+    Serial.println("[UDP] Diagnostics: Enabling verbose errors & querying ping options...");
+    sendCommand("AT+CMEE=1\r");
+    sendCommand("AT+SNPDPID=1\r");
+    sendCommand("AT+SNPDPID?\r");
+    Serial.print("[UDP] AT+SNPDPID? response: ");
+    Serial.println(m_buffer);
+    sendCommand("AT+SNPING4=?\r");
+    Serial.print("[UDP] AT+SNPING4=? response: ");
+    Serial.println(m_buffer);
+
+    // Diagnostics: Simple SNPING4 8.8.8.8
+    Serial.println("[UDP] Diagnostics: Pinging 8.8.8.8 via SNPING4...");
+    m_device->xbWrite("AT+SNPING4=\"8.8.8.8\",1,32,2000\r");
+    const char* pingAnswers[] = {"\r\nOK", "\r\nERROR", "+CME ERROR:"};
+    m_device->xbReceive(m_buffer, RECV_BUF_SIZE, 5000, pingAnswers, 3);
+    Serial.print("[UDP] SNPING4 8.8.8.8 response: ");
+    Serial.println(m_buffer);
+#endif
+  }
+  if (host) {
+    if (host[0] >= '0' && host[0] <= '9') {
+      udpIP = host;
+    } else {
+      udpIP = queryIP(host);
+      Serial.print("[UDP] Resolved IP: ");
+      Serial.println(udpIP.length() ? udpIP.c_str() : "FAILED");
+    }
     if (!udpIP.length()) {
       udpIP = host;
     }
     udpPort = port;
+
+#if VERBOSE_XBEE
+    // Diagnostics: Ping server IP
+    if (m_type == CELL_SIM7070 && udpIP.length()) {
+      Serial.print("[UDP] Diagnostics: Pinging server IP ");
+      Serial.print(udpIP);
+      Serial.println(" via SNPING4...");
+      char pingCmd[160];
+      snprintf(pingCmd, sizeof(pingCmd), "AT+SNPING4=\"%s\",1,32,2000\r", udpIP.c_str());
+      m_device->xbWrite(pingCmd);
+      const char* pingAnswers[] = {"\r\nOK", "\r\nERROR", "+CME ERROR:"};
+      m_device->xbReceive(m_buffer, RECV_BUF_SIZE, 5000, pingAnswers, 3);
+      Serial.print("[UDP] SNPING4 server response: ");
+      Serial.println(m_buffer);
+    }
+#endif
   }
-  if (!udpIP.length()) return false;
+  if (!udpIP.length()) {
+    Serial.println("[UDP] IP is empty");
+    return false;
+  }
   if (m_type == CELL_SIM7070) {
-    sendCommand("AT+CNACT=0,1\r");
-    sendCommand("AT+CACID=0\r");
-    sprintf(m_buffer, "AT+CAOPEN=0,0,\"UDP\",\"%s\",%u\r", udpIP.c_str(), udpPort);
+    sendCommand("AT+CACID=1\r");
+    Serial.print("[UDP] CACID response: ");
+    Serial.println(m_buffer);
+    sprintf(m_buffer, "AT+CAOPEN=0,1,\"UDP\",\"%s\",%u\r", udpIP.c_str(), udpPort);
+    Serial.print("[UDP] Opening connection: ");
+    Serial.println(m_buffer);
     if (!sendCommand(m_buffer, 3000)) {
+      Serial.print("[UDP] CAOPEN failed, response: ");
       Serial.println(m_buffer);
       return false;
     }
+    Serial.println("[UDP] CAOPEN succeeded");
     return true;
   } else {
     sprintf(m_buffer, "AT+CIPOPEN=0,\"UDP\",\"%s\",%u,8000\r", udpIP.c_str(), udpPort);
@@ -700,7 +827,7 @@ bool CellUDP::close()
 {
   if (m_type == CELL_SIM7070) {
     sendCommand("AT+CACLOSE=0\r");
-    return sendCommand("AT+CNACT=0,0\r");
+    return sendCommand("AT+CNACT=1,0\r");
   } else {
     return sendCommand("AT+CIPCLOSE=0\r");
   }
@@ -709,12 +836,26 @@ bool CellUDP::close()
 bool CellUDP::send(const char* data, unsigned int len)
 {
   if (m_type == CELL_SIM7070) {
+    Serial.println("[UDP] Sending data via SIM7070...");
     sendCommand("AT+CASTATE?\r");
+    Serial.print("[UDP] CASTATE response: ");
+    Serial.println(m_buffer);
     sprintf(m_buffer, "AT+CASEND=0,%u\r", len);
-    sendCommand(m_buffer, 1000, "\r\n>");
-    uart_write_bytes(UART_NUM_1, data, len);
+    if (!sendCommand(m_buffer, 1000, "\r\n>")) {
+      Serial.print("[UDP] CASEND request failed, response: ");
+      Serial.println(m_buffer);
+      return false;
+    }
+    m_device->xbWrite(data, len);
     delay(10);
-    if (sendCommand(0, 2000)) return true;
+    if (sendCommand(0, 2000)) {
+      Serial.print("[UDP] Send confirmation OK, response: ");
+      Serial.println(m_buffer);
+      return true;
+    } else {
+      Serial.print("[UDP] Send confirmation failed, response: ");
+      Serial.println(m_buffer);
+    }
   } else {
     int n = sprintf(m_buffer, "AT+CIPSEND=0,%u,\"%s\",%u\r", len, udpIP.c_str(), udpPort);
     m_device->xbWrite(m_buffer, n);
@@ -730,9 +871,19 @@ bool CellUDP::send(const char* data, unsigned int len)
 char* CellUDP::receive(int* pbytes, unsigned int timeout)
 {
   if (m_type == CELL_SIM7070) {
-    if (!m_incoming && timeout) sendCommand(0, timeout, "+CADATAIND: 0");
-    if (!m_incoming) return 0;
+    if (!m_incoming && timeout) {
+      Serial.print("[UDP] Waiting for +CADATAIND: 0 (timeout ");
+      Serial.print(timeout);
+      Serial.println("ms)...");
+      sendCommand(0, timeout, "+CADATAIND: 0");
+    }
+    if (!m_incoming) {
+      Serial.print("[UDP] +CADATAIND check failed. m_buffer content: ");
+      Serial.println(m_buffer);
+      return 0;
+    }
     m_incoming = 0;
+    Serial.println("[UDP] +CADATAIND received! Retrieving data with CARECV...");
     if (sendCommand("AT+CARECV=0,384\r", timeout)) {
       char *p = strstr(m_buffer, "+CARECV: ");
       if (p) {
@@ -740,6 +891,9 @@ char* CellUDP::receive(int* pbytes, unsigned int timeout)
         p = strchr(m_buffer, ',');
         return p ? p + 1 : m_buffer;
       }
+    } else {
+      Serial.print("[UDP] CARECV command failed. m_buffer content: ");
+      Serial.println(m_buffer);
     }
   } else {
     if (!m_incoming && timeout) sendCommand(0, timeout, "+IPD");
@@ -775,8 +929,8 @@ void CellHTTP::init()
 bool CellHTTP::open(const char* host, uint16_t port)
 {
   if (m_type == CELL_SIM7070) {
-    sendCommand("AT+CNACT=0,1\r");
-    sendCommand("AT+CACID=0\r");
+    sendCommand("AT+CNACT=1,1\r");
+    sendCommand("AT+CACID=1\r");
 
     bool useSSL = (port == 443);
     if (useSSL) {
